@@ -18,13 +18,16 @@ const MIN_SCORE: f32 = 0.4;
 
 /// Manages the `TFLite` model lifecycle and runs inference.
 ///
-/// Caches the `TFLite` `Library` (expensive to load). For each `run()`, builds
-/// a fresh `Model` + `Interpreter` from the cached bytes — model parsing is
-/// negligible compared to the delegate invocation cost.
+/// The model, delegate, and interpreter are built once when the model is
+/// loaded, then reused for all inference requests. Rebuilding the interpreter
+/// repeatedly forces delegate graph compilation repeatedly, which is both slow
+/// and rough on experimental delegates.
 pub struct TfliteManager {
-    library: Library,
+    library: &'static Library,
     /// Raw .tflite bytes received from Frigate or read from disk.
     model_bytes: Option<Vec<u8>>,
+    model: Option<&'static Model<'static>>,
+    interpreter: Option<Interpreter<'static>>,
     delegate_path: String,
     use_delegate: bool,
     threads: i32,
@@ -32,10 +35,12 @@ pub struct TfliteManager {
 
 impl TfliteManager {
     /// Create a new manager using the default system `TFLite` library.
-    pub fn new(library: Library, threads: i32) -> Self {
+    pub fn new(library: &'static Library, threads: i32) -> Self {
         Self {
             library,
             model_bytes: None,
+            model: None,
+            interpreter: None,
             delegate_path: String::new(),
             use_delegate: false,
             threads,
@@ -51,63 +56,47 @@ impl TfliteManager {
     /// Returns true if model bytes are cached.
     #[must_use]
     pub fn is_ready(&self) -> bool {
-        self.model_bytes.is_some()
+        self.interpreter.is_some()
     }
 
     /// Cache model bytes from a ZMQ transfer or file load.
     pub fn cache_model(&mut self, data: Vec<u8>) -> Result<()> {
-        // Validate: try parsing the model to catch bad data early.
-        Model::from_bytes(&self.library, data.clone())
+        let model = Model::from_bytes(self.library, data.clone())
             .map_err(|e| SidecarError::Tflite(format!("Model validation failed: {e:#?}")))?;
+        let model = Box::leak(Box::new(model));
+        let interpreter = build_interpreter(
+            model,
+            self.library,
+            &self.delegate_path,
+            self.use_delegate,
+            self.threads,
+        )?;
 
         self.model_bytes = Some(data);
+        self.interpreter = Some(interpreter);
+        self.model = Some(model);
 
         Ok(())
     }
 
     /// Run inference on pre-processed uint8 pixel bytes and return a
     /// (20, 6) float32 detection buffer as raw little-endian bytes (480).
-    pub fn run(&self, input_bytes: &[u8]) -> Result<Vec<u8>> {
-        let bytes = self
-            .model_bytes
-            .as_ref()
+    pub fn run(&mut self, input_bytes: &[u8]) -> Result<Vec<u8>> {
+        let interpreter = self
+            .interpreter
+            .as_mut()
             .ok_or(SidecarError::ModelNotLoaded)?;
-
-        let model = Model::from_bytes(&self.library, bytes.clone())
-            .map_err(|e| SidecarError::Tflite(format!("Model::from_bytes failed: {e:#?}")))?;
-
-        let interpreter = build_interpreter(
-            &model,
-            &self.library,
-            &self.delegate_path,
-            self.use_delegate,
-            self.threads,
-        )?;
-
         let output = run_inference(interpreter, input_bytes)?;
         Ok(output)
     }
 
     /// Warmup: run inference once with zeroed input to trigger delegate
     /// graph compilation.
-    pub fn warmup(&self) -> Result<()> {
-        let bytes = self
-            .model_bytes
-            .as_ref()
+    pub fn warmup(&mut self) -> Result<()> {
+        let interpreter = self
+            .interpreter
+            .as_mut()
             .ok_or(SidecarError::ModelNotLoaded)?;
-
-        let model = Model::from_bytes(&self.library, bytes.clone()).map_err(|e| {
-            SidecarError::Tflite(format!("Model::from_bytes (warmup) failed: {e:#?}"))
-        })?;
-
-        let mut interpreter = build_interpreter(
-            &model,
-            &self.library,
-            &self.delegate_path,
-            self.use_delegate,
-            self.threads,
-        )?;
-
         // Zero out input for warmup.
         let input_size = {
             let inputs = interpreter
@@ -162,7 +151,7 @@ fn build_interpreter<'a>(
 }
 
 /// Set uint8 input tensor, invoke, and return post-processed (20, 6) bytes.
-fn run_inference(mut interpreter: Interpreter, input_bytes: &[u8]) -> Result<Vec<u8>> {
+fn run_inference(interpreter: &mut Interpreter, input_bytes: &[u8]) -> Result<Vec<u8>> {
     // Set input.
     {
         let mut inputs = interpreter
@@ -189,7 +178,7 @@ fn run_inference(mut interpreter: Interpreter, input_bytes: &[u8]) -> Result<Vec
         .map_err(|e| SidecarError::Tflite(format!("interpreter.invoke() failed: {e:#?}")))?;
 
     // Post-process SSD outputs.
-    post_process_ssd(&interpreter)
+    post_process_ssd(interpreter)
 }
 
 /// Post-process 4 SSD output tensors into (20, 6) float32 LE byte buffer.

@@ -61,6 +61,7 @@ fn run() -> Result<()> {
         ))
     })?;
     log::info!("Loaded TFLite from {}", cli.tflite_lib.display());
+    let library = Box::leak(Box::new(library));
 
     // Build manager.
     let mut manager = TfliteManager::new(library, cli.threads);
@@ -82,14 +83,20 @@ fn run() -> Result<()> {
     }
 
     // Warmup if model is available.
-    if manager.is_ready() {
-        log::info!("Running warmup inference");
-        let warmup_start = std::time::Instant::now();
-        if let Ok(()) = manager.warmup() {
-            let ms = warmup_start.elapsed().as_secs_f64() * 1000.0;
-            log::info!("Warmup inference completed in {ms:.1} ms");
-        } else {
-            log::warn!("Warmup failed (will retry on first inference)");
+    if manager.is_ready() && cli.warmup_runs > 0 {
+        log::info!("Running {} warmup inference(s)", cli.warmup_runs);
+        for run in 1..=cli.warmup_runs {
+            let warmup_start = std::time::Instant::now();
+            if let Ok(()) = manager.warmup() {
+                let ms = warmup_start.elapsed().as_secs_f64() * 1000.0;
+                log::info!(
+                    "Warmup inference {run}/{} completed in {ms:.1} ms",
+                    cli.warmup_runs
+                );
+            } else {
+                log::warn!("Warmup inference {run}/{} failed", cli.warmup_runs);
+                break;
+            }
         }
     }
 
@@ -97,9 +104,9 @@ fn run() -> Result<()> {
     let manager = Arc::new(std::sync::Mutex::new(manager));
 
     // Run ZMQ REP server.
-    tokio::runtime::Runtime::new()
+    let runtime = tokio::runtime::Runtime::new()
         .map_err(|e| SidecarError::Io(format!("tokio runtime init: {e:#?}")))?;
-    tokio::runtime::Handle::current()
+    runtime
         .block_on(async { zmq_rep_loop(cli.endpoint.clone(), Arc::clone(&manager)).await })
         .map_err(|e| SidecarError::Io(format!("zmq_rep_loop failed: {e:#?}")))?;
 

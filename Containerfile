@@ -1,11 +1,9 @@
 # ---- Builder ----
-FROM docker.io/library/ubuntu:24.04 AS builder
+FROM docker.io/library/ubuntu:26.04 AS builder
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
         curl \
-        pkg-config \
-        libzmq3-dev \
         ca-certificates \
         git \
         build-essential \
@@ -23,24 +21,24 @@ COPY . .
 RUN cargo build --target aarch64-unknown-linux-gnu --release
 
 # ---- Runtime ----
-FROM docker.io/library/ubuntu:24.04
+FROM docker.io/library/ubuntu:26.04
 
 # Minimal runtime deps.
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
         ca-certificates \
-        libzmq5 \
         libgomp1 \
+        mesa-teflon-delegate \
         && rm -rf /var/lib/apt/lists/* && \
     mkdir -p /models
 
 COPY --from=builder /build/target/aarch64-unknown-linux-gnu/release/frigate-sidecar /usr/local/bin/
 COPY --from=builder /build/entrypoint.sh /entrypoint.sh
 
-# Teflon delegate path (set by host mount at runtime).
+# Teflon delegate path. TFLite itself is still expected to come from the image
+# or a host/container mount at this path.
 ENV TEFLON_LIB=/usr/lib/teflon/libteflon.so
 ENV TFLITE_LIB=/usr/lib/aarch64-linux-gnu/libtensorflow-lite.so
-ENV MODEL_DIR=/models
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["--endpoint", "tcp://0.0.0.0:5555"]

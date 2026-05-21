@@ -7,7 +7,7 @@ TFLite C runtime, and the Mesa Teflon delegate.
 
 - **ZMQ REQ/REP protocol** — matches Frigate's `zmq_ipc` plugin exactly
 - **Model transfer over ZMQ** — Frigate sends the TFLite model at runtime
-- **Mesa Teflon delegate** — hardware-accelerated inference on Intel Arc GPUs
+- **Mesa Teflon delegate** — hardware-accelerated inference on Rockchip NPU via Rocket
 - **CPU-only mode** — falls back to CPU via `--no-delegate`
 - **SSD post-processing** — 4 TFLite SSD outputs → `(20,6)` float32 detections
 - **Zero-panic runtime** — all errors handled gracefully; returns zero detections
@@ -15,31 +15,30 @@ TFLite C runtime, and the Mesa Teflon delegate.
 
 ## Quick Start
 
-### Docker
+### Container
 
 ```bash
-docker build -t frigate-sidecar .
+podman build -t frigate-sidecar .
 
 # With Teflon delegate
-docker run --rm \
+podman run --rm \
   --network host \
-  --device /dev/dri/renderD128 \
-  -v /run/udev:/run/udev:ro \
-  -v /models:/models \
+  --device /dev/accel/accel0 \
   frigate-sidecar \
     --endpoint tcp://0.0.0.0:5555 \
     --delegate /usr/lib/teflon/libteflon.so \
     --threads 1
 
 # CPU-only (no delegate)
-docker run --rm --network host frigate-sidecar \
+podman run --rm --network host frigate-sidecar \
   --no-delegate --threads 1
 ```
 
 ### Local build
 
 ```bash
-# Requires: libzmq3-dev, pkg-config, Rust toolchain
+# Requires: Rust toolchain and a TFLite C runtime shared library.
+# The ZMQ transport is pure Rust; libzmq is not used.
 cargo build --release
 ./target/release/frigate-sidecar \
   --endpoint tcp://0.0.0.0:5555 \
@@ -66,7 +65,6 @@ cargo build --release
 | `--threads` | `1` | TFLite CPU threads |
 | `--no-delegate` | `false` | Disable Teflon delegate (CPU-only) |
 | `--warmup-runs` | `3` | Warmup invocations at startup |
-| `--model-dir` | `/models` | Model cache directory |
 | `--tflite-lib` | `/usr/lib/aarch64-linux-gnu/libtensorflow-lite.so` | TFLite C library path |
 | `--debug` | `false` | Enable debug logging |
 
@@ -76,13 +74,12 @@ Add this detector to your Frigate `config.yml`:
 
 ```yaml
 detectors:
-  teeflon_sidecar:
-    type: zmq_ipc
-    api_url: http://192.168.1.50:5555
-    model: ssd_mobilenet_v2
+  teflon_sidecar:
+    type: zmq
+    endpoint: tcp://192.168.1.50:5555
 ```
 
-Replace `api_url` with your sidecar's endpoint address.
+Replace `endpoint` with your sidecar's ZMQ endpoint.
 
 ## How It Works
 
@@ -90,9 +87,9 @@ Replace `api_url` with your sidecar's endpoint address.
 2. **Model availability** — Frigate sends `{"model_request": true}` → sidecar replies
    `{"model_available": true, "model_loaded": true}`
 3. **Model transfer** — Frigate sends 2-frame message (JSON header + `.tflite` bytes).
-   Sidecar validates flatbuffer, caches in memory
+   Sidecar validates the flatbuffer, builds the interpreter, and keeps it hot
 4. **Inference** — Frigate sends 2-frame message (JSON header + uint8 tensor bytes).
-   Sidecar builds TFLite interpreter, invokes, post-processes SSD output, returns
+   Sidecar invokes the cached TFLite interpreter, post-processes SSD output, returns
    2-frame response (JSON header + 480 float32 LE bytes)
 
 ### Protocol Details
@@ -100,7 +97,7 @@ Replace `api_url` with your sidecar's endpoint address.
 | Message | Frame 1 | Frame 2 |
 |---|---|---|
 | Model availability | `{"model_request": true}` | *(none)* |
-| Model transfer | `{"shape":[...], "dtype":"uint8"}` | `.tflite` bytes |
+| Model transfer | `{"model_data": true, "model_name": "..."}` | `.tflite` bytes |
 | Inference request | `{"shape":[...], "dtype":"uint8"}` | uint8 tensor bytes |
 | Inference reply | `{"shape":[20,6], "dtype":"float32"}` | 480 float32 LE bytes |
 
@@ -116,7 +113,7 @@ input tensor shape (usually `[1,320,320,3]` uint8 for Frigate's default model).
 Ensure the Teflon delegate `.so` is present and the GPU driver is loaded:
 ```bash
 ls -la /usr/lib/teflon/libteflon.so
-lsof | grep -i tefflon  # check for conflicts
+ls -la /dev/accel/accel0
 ```
 
 ### ZMQ connection refused
@@ -128,9 +125,9 @@ ss -tlnp | grep 5555
 
 ### Slow first inference
 
-The first invocation triggers delegate graph compilation. Warmup at startup
-pre-compiles the graph. If warmup is disabled or fails, expect a ~500 ms cold start
-on the first detection.
+The model transfer or pre-load step builds the interpreter. Warmup then invokes
+the cached interpreter so delegate graph compilation happens before the first
+Frigate detection request.
 
 ## License
 
