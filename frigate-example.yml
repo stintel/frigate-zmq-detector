@@ -1,0 +1,31 @@
+# Example Frigate configuration fragment for zmq_ipc detector.
+# Merge this into your existing config.yml under `detectors:`.
+#
+# The zmq_ipc detector sends inference requests over ZMQ to this sidecar
+# and receives post-processed SSD detection results.
+#
+# Replace the `api_url` with the IP:port of the sidecar container.
+
+detectors:
+  teeflon_sidecar:
+    # zmq_ipc tells Frigate to use the ZMQ REQ/REQ protocol.
+    type: zmq_ipc
+
+    # ZMQ endpoint where the sidecar is listening.
+    api_url: tcp://127.0.0.1:5555
+
+    # The model name must match what the sidecar expects.
+    # Frigate uses this for the model availability / transfer handshake.
+    model: ssd_mobilenet_v2
+
+# --- Optional: GPU device passthrough for the sidecar container -----------
+#
+# If running the sidecar in Docker, pass through the Intel Arc GPU:
+#
+#   docker run --rm \
+#     --network host \
+#     --device /dev/dri/renderD128:/dev/dri/renderD128 \
+#     -v /run/udev:/run/udev:ro \
+#     frigate-sidecar \
+#       --endpoint tcp://0.0.0.0:5555 \
+#       --threads 1
