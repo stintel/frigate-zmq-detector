@@ -139,6 +139,7 @@ async fn zmq_rep_loop(
         };
 
         let count = REQUEST_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+        log::debug!("Received ZMQ request #{count} with {} frame(s)", msg.len());
 
         // Periodic stats log.
         if count.is_multiple_of(LOG_INTERVAL) {

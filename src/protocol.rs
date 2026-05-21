@@ -42,10 +42,16 @@ pub(crate) fn handle_model_request(
 
     let header: serde_json::Value =
         serde_json::from_slice(&frames[0]).map_err(|e| SidecarError::Json(format!("{e:#?}")))?;
+    let name = header
+        .get("model_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
 
     // Single frame: availability query.
     if frames.len() == 1 {
-        return Ok(model_availability_reply(tflite.is_ready()));
+        let loaded = tflite.is_ready();
+        log::info!("Model availability request for {name}: loaded={loaded}");
+        return Ok(model_availability_reply(loaded));
     }
 
     // Two frames: model data transfer (header + .tflite bytes).
@@ -53,17 +59,13 @@ pub(crate) fn handle_model_request(
         .get(1)
         .ok_or_else(|| SidecarError::Zmq("model transfer missing data frame".to_string()))?;
 
-    let name = header
-        .get("model_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown");
-
     let data_bytes: Vec<u8> = data.to_vec();
     log::info!(
         "Caching model {name} ({size} bytes)",
         size = data_bytes.len()
     );
     tflite.cache_model(data_bytes)?;
+    log::info!("Model {name} loaded");
 
     Ok(model_loaded_reply(true, true))
 }
