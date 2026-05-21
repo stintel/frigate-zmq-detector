@@ -65,7 +65,7 @@ cargo build --release
 | `--threads` | `1` | TFLite CPU threads |
 | `--no-delegate` | `false` | Disable Teflon delegate (CPU-only) |
 | `--warmup-runs` | `3` | Warmup invocations at startup |
-| `--tflite-lib` | `/usr/lib/aarch64-linux-gnu/libtensorflow-lite.so` | TFLite C library path |
+| `--tflite-lib` | `/usr/lib/aarch64-linux-gnu/libtensorflow-lite.so.2.14.1` | TFLite C library path |
 | `--debug` | `false` | Enable debug logging |
 
 ## Frigate Configuration

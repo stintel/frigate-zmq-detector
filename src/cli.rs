@@ -40,7 +40,7 @@ pub struct Cli {
     #[arg(
         long,
         env = "TFLITE_LIB",
-        default_value = "/usr/lib/aarch64-linux-gnu/libtensorflow-lite.so"
+        default_value = "/usr/lib/aarch64-linux-gnu/libtensorflow-lite.so.2.14.1"
     )]
     pub tflite_lib: PathBuf,
 

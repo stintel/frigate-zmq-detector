@@ -23,11 +23,12 @@ RUN cargo build --target aarch64-unknown-linux-gnu --release
 # ---- Runtime ----
 FROM docker.io/library/ubuntu:26.04
 
-# Minimal runtime deps.
+# Minimal runtime deps: TFLite 2.14.1, GOMP, Teflon delegate.
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
         ca-certificates \
         libgomp1 \
+        libtensorflow-lite2.14.1 \
         mesa-teflon-delegate \
         && rm -rf /var/lib/apt/lists/* && \
     mkdir -p /models
@@ -35,10 +36,9 @@ RUN apt-get update && \
 COPY --from=builder /build/target/aarch64-unknown-linux-gnu/release/frigate-sidecar /usr/local/bin/
 COPY --from=builder /build/entrypoint.sh /entrypoint.sh
 
-# Teflon delegate path. TFLite itself is still expected to come from the image
-# or a host/container mount at this path.
+# Teflon delegate and TFLite 2.14.1 are installed above.
 ENV TEFLON_LIB=/usr/lib/teflon/libteflon.so
-ENV TFLITE_LIB=/usr/lib/aarch64-linux-gnu/libtensorflow-lite.so
+ENV TFLITE_LIB=/usr/lib/aarch64-linux-gnu/libtensorflow-lite.so.2.14.1
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["--endpoint", "tcp://0.0.0.0:5555"]
