@@ -1,0 +1,16 @@
+[package]
+name = "frigate-sidecar"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bytes = "1.11.1"
+clap = { version = "4.6.1", features = ["derive"] }
+edgefirst-tflite = "0.7.0"
+env_logger = "0.11.10"
+libc = "0.2.186"
+log = "0.4.29"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+tokio = { version = "1.52.3", features = ["rt", "time", "macros", "net", "sync", "rt-multi-thread"] }
+zeromq = { version = "0.6.0", features = ["tcp-transport", "ipc-transport", "tokio-runtime"] }
