@@ -10,6 +10,8 @@ mod tflite;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
+use std::{env, process::Command};
 
 use clap::Parser;
 use zeromq::{RepSocket, Socket, SocketRecv, SocketSend, ZmqError};
@@ -22,12 +24,16 @@ static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
 
 /// Periodically log request count every 60 s (approximated).
 const LOG_INTERVAL: u32 = 60_000;
+const WORKER_ENV: &str = "FRIGATE_SIDECAR_WORKER";
+const SUPERVISE_ENV: &str = "FRIGATE_SIDECAR_SUPERVISE";
 
 // ---------------------------------------------------------------------------
 // Entrypoint
 // ---------------------------------------------------------------------------
 
 fn main() {
+    install_panic_logger();
+
     if let Err(e) = run() {
         eprintln!("Fatal: {e}");
         std::process::exit(1);
@@ -38,11 +44,16 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
 
     // Initialize logging.
-    env_logger::init_from_env(env_logger::Env::new().default_filter_or(if cli.debug {
+    let _ = env_logger::Builder::from_env(env_logger::Env::new().default_filter_or(if cli.debug {
         "debug"
     } else {
         "info"
-    }));
+    }))
+    .try_init();
+
+    if supervisor_enabled() && env::var_os(WORKER_ENV).is_none() {
+        return supervise();
+    }
 
     log::info!(
         "Starting frigate-sidecar v{} (git {})",
@@ -111,6 +122,64 @@ fn run() -> Result<()> {
         .map_err(|e| SidecarError::Io(format!("zmq_rep_loop failed: {e:#?}")))?;
 
     Ok(())
+}
+
+fn supervisor_enabled() -> bool {
+    env::var(SUPERVISE_ENV)
+        .map(|value| {
+            !matches!(
+                value.as_str(),
+                "0" | "false" | "False" | "FALSE" | "no" | "No"
+            )
+        })
+        .unwrap_or(true)
+}
+
+fn supervise() -> Result<()> {
+    let exe =
+        env::current_exe().map_err(|e| SidecarError::Io(format!("current_exe failed: {e:#?}")))?;
+    let args = env::args_os().skip(1).collect::<Vec<_>>();
+    let mut backoff = Duration::from_secs(1);
+
+    log::info!(
+        "Supervisor enabled; set {SUPERVISE_ENV}=0 to run without worker restart supervision"
+    );
+
+    loop {
+        let started = std::time::Instant::now();
+        let mut child = Command::new(&exe)
+            .args(&args)
+            .env(WORKER_ENV, "1")
+            .spawn()
+            .map_err(|e| SidecarError::Io(format!("spawn worker failed: {e:#?}")))?;
+
+        log::info!("Started sidecar worker pid={}", child.id());
+
+        let status = child
+            .wait()
+            .map_err(|e| SidecarError::Io(format!("wait worker failed: {e:#?}")))?;
+        let runtime = started.elapsed();
+
+        log::error!("Sidecar worker exited after {runtime:.1?}: {status}");
+
+        if runtime >= Duration::from_secs(60) {
+            backoff = Duration::from_secs(1);
+        } else {
+            log::warn!("Worker exited quickly; backing off for {backoff:.1?}");
+            std::thread::sleep(backoff);
+            backoff = (backoff * 2).min(Duration::from_secs(30));
+            continue;
+        }
+
+        std::thread::sleep(backoff);
+    }
+}
+
+fn install_panic_logger() {
+    std::panic::set_hook(Box::new(|info| {
+        log::error!("panic: {info}");
+        eprintln!("panic: {info}");
+    }));
 }
 
 /// Main ZMQ REP server loop.

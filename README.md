@@ -12,6 +12,8 @@ TFLite C runtime, and the Mesa Teflon delegate.
 - **SSD post-processing** — 4 TFLite SSD outputs → `(20,6)` float32 detections
 - **Zero-panic runtime** — all errors handled gracefully; returns zero detections
   on failure instead of crashing
+- **Worker supervision** — keeps the ZMQ endpoint alive by restarting the worker
+  if the native TFLite/delegate stack aborts
 
 ## Quick Start
 
@@ -67,6 +69,10 @@ cargo build --release
 | `--warmup-runs` | `3` | Warmup invocations at startup |
 | `--tflite-lib` | `/usr/lib/aarch64-linux-gnu/libtensorflow-lite.so.2.14.1` | TFLite C library path |
 | `--debug` | `false` | Enable debug logging |
+
+By default the binary starts a small supervisor process which spawns the actual
+TFLite/ZMQ worker. Set `FRIGATE_SIDECAR_SUPERVISE=0` to disable this and run the
+worker directly.
 
 ## Frigate Configuration
 
