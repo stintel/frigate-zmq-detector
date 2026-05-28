@@ -14,6 +14,11 @@ detectors:
     # ZMQ endpoint where the sidecar is listening.
     endpoint: tcp://127.0.0.1:5555
 
+    # Keep this higher than the sidecar INFERENCE_TIMEOUT_MS. The sidecar
+    # default is 150 ms, so Frigate has time to receive the restart/error path
+    # before its own detector watchdog starts interfering.
+    request_timeout_ms: 300
+
 # --- Optional: NPU device passthrough for the sidecar container -----------
 #
 # If running the sidecar in a container, pass through the Rocket accel node:

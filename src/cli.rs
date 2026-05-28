@@ -33,7 +33,7 @@ pub struct Cli {
     pub warmup_runs: u32,
 
     /// Abort and restart the worker if one inference takes longer than this.
-    #[arg(long, env = "INFERENCE_TIMEOUT_MS", default_value_t = 500)]
+    #[arg(long, env = "INFERENCE_TIMEOUT_MS", default_value_t = 150)]
     pub inference_timeout_ms: u64,
 
     /// Disable Teflon delegate (CPU-only mode).

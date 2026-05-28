@@ -67,6 +67,7 @@ cargo build --release
 | `--threads` | `1` | TFLite CPU threads |
 | `--no-delegate` | `false` | Disable Teflon delegate (CPU-only) |
 | `--warmup-runs` | `3` | Warmup invocations at startup |
+| `--inference-timeout-ms` | `150` | Abort and restart the worker if one inference exceeds this |
 | `--tflite-lib` | `/usr/lib/aarch64-linux-gnu/libtensorflow-lite.so.2.14.1` | TFLite C library path |
 | `--debug` | `false` | Enable debug logging |
 
@@ -83,9 +84,13 @@ detectors:
   teflon_sidecar:
     type: zmq
     endpoint: tcp://192.168.1.50:5555
+    request_timeout_ms: 300
 ```
 
 Replace `endpoint` with your sidecar's ZMQ endpoint.
+Keep Frigate's `request_timeout_ms` higher than the sidecar's
+`--inference-timeout-ms`, so the worker abort/restart happens before Frigate's
+detector request times out.
 
 ## How It Works
 
