@@ -7,6 +7,7 @@ mod cli;
 mod error;
 mod protocol;
 mod tflite;
+mod watchdog;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -63,6 +64,7 @@ fn run() -> Result<()> {
     log::info!("ZMQ endpoint: {}", cli.endpoint);
     log::info!("Threads: {}", cli.threads);
     log::info!("Teflon delegate: {}", !cli.no_delegate);
+    log::info!("Inference timeout: {} ms", cli.inference_timeout_ms);
 
     // Load TFLite C library.
     let library = edgefirst_tflite::Library::from_path(&cli.tflite_lib).map_err(|e| {
@@ -98,7 +100,12 @@ fn run() -> Result<()> {
         log::info!("Running {} warmup inference(s)", cli.warmup_runs);
         for run in 1..=cli.warmup_runs {
             let warmup_start = std::time::Instant::now();
-            if let Ok(()) = manager.warmup() {
+            let warmup_result = watchdog::run_with_process_watchdog(
+                "warmup inference",
+                Duration::from_millis(cli.inference_timeout_ms),
+                || manager.warmup(),
+            );
+            if let Ok(()) = warmup_result {
                 let ms = warmup_start.elapsed().as_secs_f64() * 1000.0;
                 log::info!(
                     "Warmup inference {run}/{} completed in {ms:.1} ms",
@@ -118,7 +125,14 @@ fn run() -> Result<()> {
     let runtime = tokio::runtime::Runtime::new()
         .map_err(|e| SidecarError::Io(format!("tokio runtime init: {e:#?}")))?;
     runtime
-        .block_on(async { zmq_rep_loop(cli.endpoint.clone(), Arc::clone(&manager)).await })
+        .block_on(async {
+            zmq_rep_loop(
+                cli.endpoint.clone(),
+                Arc::clone(&manager),
+                Duration::from_millis(cli.inference_timeout_ms),
+            )
+            .await
+        })
         .map_err(|e| SidecarError::Io(format!("zmq_rep_loop failed: {e:#?}")))?;
 
     Ok(())
@@ -186,6 +200,7 @@ fn install_panic_logger() {
 async fn zmq_rep_loop(
     endpoint: String,
     manager: Arc<std::sync::Mutex<TfliteManager>>,
+    inference_timeout: Duration,
 ) -> Result<()> {
     let mut socket = RepSocket::new();
 
@@ -232,7 +247,7 @@ async fn zmq_rep_loop(
             let mut mgr = manager
                 .lock()
                 .map_err(|e| SidecarError::Tflite(format!("manager lock: {e:#?}")))?;
-            match protocol::handle_inference(msg, &mut mgr) {
+            match protocol::handle_inference(msg, &mut mgr, inference_timeout) {
                 Ok(r) => r,
                 Err(e) => {
                     log::error!("Inference dispatch error: {e}");

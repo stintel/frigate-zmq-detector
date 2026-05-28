@@ -1,10 +1,12 @@
 //! ZMQ REQ/REP protocol implementation matching Frigate `zmq_ipc` plugin.
 
 use serde_json::json;
+use std::time::Duration;
 use zeromq::ZmqMessage;
 
 use crate::error::{Result, SidecarError};
 use crate::tflite::TfliteManager;
+use crate::watchdog::run_with_process_watchdog;
 
 // (20, 6) float32 output = 480 bytes.
 const EXPECTED_OUTPUT_BYTES: usize = 20 * 6 * 4;
@@ -103,7 +105,11 @@ pub(crate) fn zero_inference_reply() -> ZmqMessage {
 }
 
 /// Handle an inference request and return a 2-frame reply.
-pub(crate) fn handle_inference(msg: ZmqMessage, tflite: &mut TfliteManager) -> Result<ZmqMessage> {
+pub(crate) fn handle_inference(
+    msg: ZmqMessage,
+    tflite: &mut TfliteManager,
+    inference_timeout: Duration,
+) -> Result<ZmqMessage> {
     let frames = msg.into_vec();
     if frames.len() < 2 {
         return Err(SidecarError::Zmq(format!(
@@ -128,7 +134,7 @@ pub(crate) fn handle_inference(msg: ZmqMessage, tflite: &mut TfliteManager) -> R
     let start = std::time::Instant::now();
 
     let output = if tflite.is_ready() {
-        match tflite.run(input_data) {
+        match run_with_process_watchdog("inference", inference_timeout, || tflite.run(input_data)) {
             Ok(buf) => buf,
             Err(e) => {
                 log::error!("Inference error: {e} — returning zero detections");
