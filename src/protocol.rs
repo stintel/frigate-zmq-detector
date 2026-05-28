@@ -61,6 +61,14 @@ pub(crate) fn handle_model_request(
         .get(1)
         .ok_or_else(|| SidecarError::Zmq("model transfer missing data frame".to_string()))?;
 
+    if tflite.is_ready() {
+        log::warn!(
+            "Ignoring model transfer for {name} ({size} bytes); preloaded model is already ready",
+            size = data.len()
+        );
+        return Ok(model_loaded_reply(true, true));
+    }
+
     let data_bytes: Vec<u8> = data.to_vec();
     log::info!(
         "Caching model {name} ({size} bytes)",

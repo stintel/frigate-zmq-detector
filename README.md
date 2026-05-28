@@ -6,7 +6,8 @@ TFLite C runtime, and the Mesa Teflon delegate.
 ## Features
 
 - **ZMQ REQ/REP protocol** — matches Frigate's `zmq_ipc` plugin exactly
-- **Model transfer over ZMQ** — Frigate sends the TFLite model at runtime
+- **Model pre-load** — load the TFLite model at startup; Frigate model
+  transfers are acknowledged but ignored once the model is ready
 - **Mesa Teflon delegate** — hardware-accelerated inference on Rockchip NPU via Rocket
 - **CPU-only mode** — falls back to CPU via `--no-delegate`
 - **SSD post-processing** — 4 TFLite SSD outputs → `(20,6)` float32 detections
@@ -98,7 +99,9 @@ detector request times out.
 2. **Model availability** — Frigate sends `{"model_request": true}` → sidecar replies
    `{"model_available": true, "model_loaded": true}`
 3. **Model transfer** — Frigate sends 2-frame message (JSON header + `.tflite` bytes).
-   Sidecar validates the flatbuffer, builds the interpreter, and keeps it hot
+   If a pre-loaded model is already ready, sidecar acknowledges the transfer and
+   keeps the existing interpreter. Otherwise, it validates the flatbuffer, builds
+   the interpreter, and keeps it hot
 4. **Inference** — Frigate sends 2-frame message (JSON header + uint8 tensor bytes).
    Sidecar invokes the cached TFLite interpreter, post-processes SSD output, returns
    2-frame response (JSON header + 480 float32 LE bytes)

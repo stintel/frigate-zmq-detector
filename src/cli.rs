@@ -12,7 +12,7 @@ pub struct Cli {
     #[arg(long, env = "ZMQ_ENDPOINT", default_value = "tcp://0.0.0.0:5555")]
     pub endpoint: String,
 
-    /// Path to `TFLite` model file. Ignored if model is transferred via ZMQ.
+    /// Path to `TFLite` model file. If set, ZMQ model transfers are acknowledged but ignored.
     #[arg(long, env = "MODEL_PATH")]
     pub model: Option<PathBuf>,
 
