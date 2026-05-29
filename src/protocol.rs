@@ -126,20 +126,8 @@ pub(crate) fn handle_inference(
         )));
     }
 
-    // Parse header for logging (shape, dtype).
     let input_data: &[u8] = &frames[1];
-    let header = serde_json::from_slice::<serde_json::Value>(&frames[0]).ok();
-    let shape = header
-        .as_ref()
-        .and_then(|h| h.get("shape").and_then(|s| s.as_array()))
-        .map(|a| {
-            a.iter()
-                .filter_map(serde_json::Value::as_i64)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-
-    let start = std::time::Instant::now();
+    let start = log::log_enabled!(log::Level::Debug).then(std::time::Instant::now);
 
     let output = if tflite.is_ready() {
         match run_with_process_watchdog("inference", inference_timeout, || tflite.run(input_data)) {
@@ -150,12 +138,24 @@ pub(crate) fn handle_inference(
             }
         }
     } else {
+        let header = serde_json::from_slice::<serde_json::Value>(&frames[0]).ok();
+        let shape = header
+            .as_ref()
+            .and_then(|h| h.get("shape").and_then(|s| s.as_array()))
+            .map(|a| {
+                a.iter()
+                    .filter_map(serde_json::Value::as_i64)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         log::warn!("Inference requested but model not loaded (shape={shape:?}) — zero result");
         vec![0u8; EXPECTED_OUTPUT_BYTES]
     };
 
-    let ms = start.elapsed().as_secs_f64() * 1000.0;
-    log::debug!("Inference in {ms:.1} ms");
+    if let Some(start) = start {
+        let ms = start.elapsed().as_secs_f64() * 1000.0;
+        log::debug!("Inference in {ms:.1} ms");
+    }
 
     // Build 2-frame response.
     let resp_header = json!({"shape": [20, 6], "dtype": "float32"});

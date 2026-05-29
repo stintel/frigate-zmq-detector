@@ -11,7 +11,7 @@ mod watchdog;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{env, process::Command};
 
 use clap::Parser;
@@ -23,8 +23,7 @@ use crate::tflite::TfliteManager;
 
 static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
 
-/// Periodically log request count every 60 s (approximated).
-const LOG_INTERVAL: u32 = 60_000;
+const STATS_INTERVAL: Duration = Duration::from_secs(10);
 const WORKER_ENV: &str = "FRIGATE_SIDECAR_WORKER";
 const SUPERVISE_ENV: &str = "FRIGATE_SIDECAR_SUPERVISE";
 
@@ -211,6 +210,8 @@ async fn zmq_rep_loop(
 
     log::info!("Listening on {endpoint}");
 
+    let mut stats = LoopStats::new();
+
     loop {
         // Wait for a request.
         let msg = match socket.recv().await {
@@ -222,13 +223,9 @@ async fn zmq_rep_loop(
             }
         };
 
+        let request_started = Instant::now();
         let count = REQUEST_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
         log::debug!("Received ZMQ request #{count} with {} frame(s)", msg.len());
-
-        // Periodic stats log.
-        if count.is_multiple_of(LOG_INTERVAL) {
-            log::info!("Processed {count} requests total");
-        }
 
         // Dispatch: model management or inference.
         let is_mgmt = protocol::classify_message(&msg);
@@ -256,9 +253,69 @@ async fn zmq_rep_loop(
             }
         };
 
+        stats.record(is_mgmt, request_started.elapsed());
+
         // Send reply.
         if let Err(e) = socket.send(reply).await {
             log::error!("send reply: {e:#?}");
         }
+    }
+}
+
+struct LoopStats {
+    interval_started: Instant,
+    requests: u64,
+    mgmt_requests: u64,
+    inference_requests: u64,
+    total_response_time: Duration,
+    max_response_time: Duration,
+}
+
+impl LoopStats {
+    fn new() -> Self {
+        Self {
+            interval_started: Instant::now(),
+            requests: 0,
+            mgmt_requests: 0,
+            inference_requests: 0,
+            total_response_time: Duration::ZERO,
+            max_response_time: Duration::ZERO,
+        }
+    }
+
+    fn record(&mut self, is_mgmt: bool, response_time: Duration) {
+        self.requests += 1;
+        if is_mgmt {
+            self.mgmt_requests += 1;
+        } else {
+            self.inference_requests += 1;
+        }
+        self.total_response_time += response_time;
+        self.max_response_time = self.max_response_time.max(response_time);
+
+        let elapsed = self.interval_started.elapsed();
+        if elapsed < STATS_INTERVAL {
+            return;
+        }
+
+        let avg_ms = if self.requests == 0 {
+            0.0
+        } else {
+            self.total_response_time.as_secs_f64() * 1000.0 / self.requests as f64
+        };
+        let req_per_sec = self.requests as f64 / elapsed.as_secs_f64();
+        let infer_per_sec = self.inference_requests as f64 / elapsed.as_secs_f64();
+        let max_ms = self.max_response_time.as_secs_f64() * 1000.0;
+
+        log::info!(
+            "ZMQ stats: {:.1} req/s, {:.1} infer/s, {} mgmt, avg {:.1} ms, max {:.1} ms",
+            req_per_sec,
+            infer_per_sec,
+            self.mgmt_requests,
+            avg_ms,
+            max_ms
+        );
+
+        *self = Self::new();
     }
 }
