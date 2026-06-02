@@ -51,4 +51,28 @@ pub struct Cli {
     /// Enable verbose debug logging.
     #[arg(long, short, env = "DEBUG", default_value_t = false)]
     pub debug: bool,
+
+    /// Exit if no successful response completes within this many seconds.
+    /// Set to 0 to disable. Protects against wedged ZMQ recv or hung inference.
+    #[arg(
+        long,
+        env = "FRIGATE_SIDECAR_MAX_NO_PROGRESS_SECS",
+        default_value_t = 60
+    )]
+    pub max_no_progress_secs: u64,
+
+    /// Exit cleanly after this many successful inference requests (recycling).
+    /// Set to 0 to disable. Mitigates gradual resource leaks.
+    #[arg(long, env = "FRIGATE_SIDECAR_MAX_REQUESTS", default_value_t = 0)]
+    pub max_requests: u64,
+
+    /// Exit cleanly after this many seconds of uptime (recycling).
+    /// Set to 0 to disable.
+    #[arg(long, env = "FRIGATE_SIDECAR_MAX_LIFETIME_SECS", default_value_t = 0)]
+    pub max_lifetime_secs: u64,
+
+    /// Timeout for a single ZMQ recv call (seconds). Prevents infinite blocking
+    /// on a hung recv. Set to 0 to disable.
+    #[arg(long, env = "FRIGATE_SIDECAR_RECV_TIMEOUT_SECS", default_value_t = 30)]
+    pub recv_timeout_secs: u64,
 }

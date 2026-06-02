@@ -10,7 +10,6 @@ mod tflite;
 mod watchdog;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 use std::{env, process::Command};
 
@@ -20,10 +19,10 @@ use zeromq::{RepSocket, Socket, SocketRecv, SocketSend, ZmqError};
 use crate::cli::Cli;
 use crate::error::{Result, SidecarError};
 use crate::tflite::TfliteManager;
+use crate::watchdog::{EXIT_CODE_NO_PROGRESS, ProgressWatchdog};
 
-static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
-
-const STATS_INTERVAL: Duration = Duration::from_secs(10);
+const HEALTH_LOG_INTERVAL: Duration = Duration::from_secs(60);
+const WATCHDOG_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 const WORKER_ENV: &str = "FRIGATE_SIDECAR_WORKER";
 const SUPERVISE_ENV: &str = "FRIGATE_SIDECAR_SUPERVISE";
 
@@ -64,6 +63,13 @@ fn run() -> Result<()> {
     log::info!("Threads: {}", cli.threads);
     log::info!("Teflon delegate: {}", !cli.no_delegate);
     log::info!("Inference timeout: {} ms", cli.inference_timeout_ms);
+    log::info!(
+        "Progress watchdog: no_progress={}s, recv_timeout={}s, max_requests={}, max_lifetime={}s",
+        cli.max_no_progress_secs,
+        cli.recv_timeout_secs,
+        cli.max_requests,
+        cli.max_lifetime_secs
+    );
 
     // Load TFLite C library.
     let library = edgefirst_tflite::Library::from_path(&cli.tflite_lib).map_err(|e| {
@@ -120,6 +126,13 @@ fn run() -> Result<()> {
     // Wrap manager in Arc for shared access (single-threaded REP loop).
     let manager = Arc::new(std::sync::Mutex::new(manager));
 
+    // Build progress watchdog.
+    let watchdog = ProgressWatchdog::new(
+        cli.max_no_progress_secs,
+        cli.max_requests,
+        cli.max_lifetime_secs,
+    );
+
     // Run ZMQ REP server.
     let runtime = tokio::runtime::Runtime::new()
         .map_err(|e| SidecarError::Io(format!("tokio runtime init: {e:#?}")))?;
@@ -129,6 +142,8 @@ fn run() -> Result<()> {
                 cli.endpoint.clone(),
                 Arc::clone(&manager),
                 Duration::from_millis(cli.inference_timeout_ms),
+                watchdog,
+                Duration::from_secs(cli.recv_timeout_secs),
             )
             .await
         })
@@ -195,11 +210,14 @@ fn install_panic_logger() {
     }));
 }
 
-/// Main ZMQ REP server loop.
+/// Main ZMQ REP server loop — hardened with recv timeout, error backoff,
+/// and progress tracking.
 async fn zmq_rep_loop(
     endpoint: String,
     manager: Arc<std::sync::Mutex<TfliteManager>>,
     inference_timeout: Duration,
+    health: Arc<ProgressWatchdog>,
+    recv_timeout: Duration,
 ) -> Result<()> {
     let mut socket = RepSocket::new();
 
@@ -211,24 +229,73 @@ async fn zmq_rep_loop(
     log::info!("Listening on {endpoint}");
 
     let mut stats = LoopStats::new();
+    let mut consecutive_recv_errors: u32 = 0;
+
+    // Spawn watchdog monitor in the background.
+    let monitor_handle = tokio::spawn(watchdog_monitor(Arc::clone(&health)));
 
     loop {
-        // Wait for a request.
-        let msg = match socket.recv().await {
-            Ok(m) => m,
-            Err(ZmqError::NoMessage) => continue,
-            Err(e) => {
-                log::error!("recv error: {e:#?}");
-                continue;
+        // Receive request — with optional timeout to prevent infinite blocking.
+        // Result variants: Ok = message, Err(RecvStatus::Timeout), Err(RecvStatus::Error)
+        let msg = if recv_timeout.is_zero() {
+            match socket.recv().await {
+                Ok(m) => {
+                    consecutive_recv_errors = 0;
+                    Some(m)
+                }
+                Err(e) => {
+                    handle_recv_error(&mut consecutive_recv_errors, &e, &health, &monitor_handle)
+                        .await;
+                    None
+                }
+            }
+        } else {
+            match tokio::time::timeout(recv_timeout, socket.recv()).await {
+                Ok(Ok(m)) => {
+                    consecutive_recv_errors = 0;
+                    Some(m)
+                }
+                Ok(Err(e)) => {
+                    handle_recv_error(&mut consecutive_recv_errors, &e, &health, &monitor_handle)
+                        .await;
+                    None
+                }
+                Err(_) => {
+                    // Timeout — recv took too long. Check progress watchdog.
+                    if let Some(reason) = health.check() {
+                        log::error!("recv watchdog: {reason}; exiting");
+                        monitor_handle.abort();
+                        std::process::exit(EXIT_CODE_NO_PROGRESS);
+                    }
+                    None
+                }
             }
         };
 
+        // If no message received, loop back to recv.
+        let msg = match msg {
+            Some(m) => m,
+            None => continue,
+        };
+
         let request_started = Instant::now();
-        let count = REQUEST_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-        log::debug!("Received ZMQ request #{count} with {} frame(s)", msg.len());
 
         // Dispatch: model management or inference.
         let is_mgmt = protocol::classify_message(&msg);
+
+        if !is_mgmt {
+            // Track inference requests in progress watchdog.
+            health.request_start();
+            log::debug!(
+                "Inference request #{}, {} frame(s)",
+                health.snapshot().total_requests,
+                msg.len()
+            );
+        } else {
+            log::debug!("Model mgmt request, {} frame(s)", msg.len());
+        }
+
+        let dispatch_start = Instant::now();
         let reply = if is_mgmt {
             let mut mgr = manager
                 .lock()
@@ -252,12 +319,107 @@ async fn zmq_rep_loop(
                 }
             }
         };
+        let dispatch_ms = dispatch_start.elapsed().as_secs_f64() * 1000.0;
+
+        // Send reply — measure send duration.
+        let send_start = Instant::now();
+        let send_ok = match socket.send(reply).await {
+            Ok(()) => {
+                log::debug!(
+                    "Reply sent in {:.1} ms",
+                    send_start.elapsed().as_secs_f64() * 1000.0
+                );
+                true
+            }
+            Err(e) => {
+                log::error!("send reply: {e:#?}");
+                false
+            }
+        };
+
+        // Update progress tracking.
+        if !is_mgmt {
+            if send_ok {
+                health.response_ok();
+            } else {
+                health.response_err();
+            }
+
+            let total_ms = request_started.elapsed().as_secs_f64() * 1000.0;
+            log::debug!(
+                "Request complete in {:.1} ms (dispatch={:.1} ms, send={:.1} ms)",
+                total_ms,
+                dispatch_ms,
+                send_start.elapsed().as_secs_f64() * 1000.0
+            );
+        }
 
         stats.record(is_mgmt, request_started.elapsed());
+    }
+}
 
-        // Send reply.
-        if let Err(e) = socket.send(reply).await {
-            log::error!("send reply: {e:#?}");
+/// Handle a ZMQ recv error: log, back off on repeated errors, and check watchdog.
+async fn handle_recv_error(
+    consecutive: &mut u32,
+    error: &ZmqError,
+    health: &ProgressWatchdog,
+    _monitor: &tokio::task::JoinHandle<()>,
+) {
+    *consecutive += 1;
+    if *consecutive <= 3 || (*consecutive).is_multiple_of(10) {
+        log::error!("recv error (consecutive={}): {error:#?}", *consecutive);
+    }
+
+    // Back off on repeated errors to avoid CPU spin.
+    if *consecutive > 2 {
+        let backoff_ms = (*consecutive as u64).min(2000);
+        log::warn!("recv backoff: {} ms", backoff_ms);
+        tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+    }
+
+    // Check if we're stuck with no progress.
+    if let Some(reason) = health.check() {
+        log::error!("recv error watchdog: {reason}; exiting");
+        // Can't abort monitor from here without handle — rely on process exit.
+        std::process::exit(EXIT_CODE_NO_PROGRESS);
+    }
+}
+
+/// Background task: periodically log health state and check if we should exit.
+async fn watchdog_monitor(health: Arc<ProgressWatchdog>) {
+    let mut health_timer = tokio::time::interval(HEALTH_LOG_INTERVAL);
+    let mut check_timer = tokio::time::interval(WATCHDOG_CHECK_INTERVAL);
+
+    // Skip first immediate tick from both intervals.
+    health_timer.tick().await;
+    check_timer.tick().await;
+
+    loop {
+        tokio::select! {
+            _ = health_timer.tick() => {
+                let snap = health.snapshot();
+                if snap.total_requests > 0 {
+                    log::info!(
+                        "health: requests={}, successes={}, failures={}, last_success_age={:.1}s",
+                        snap.total_requests,
+                        snap.total_successes,
+                        snap.total_failures,
+                        snap.last_success_age_secs(),
+                    );
+                } else {
+                    log::info!(
+                        "health: idle (uptime={:.0}s)",
+                        (snap.now_ms as f64) / 1000.0,
+                    );
+                }
+            }
+            _ = check_timer.tick() => {
+                if health.is_enabled()
+                    && let Some(reason) = health.check() {
+                        log::error!("watchdog monitor fired: {reason}; exiting");
+                        std::process::exit(EXIT_CODE_NO_PROGRESS);
+                    }
+            }
         }
     }
 }
@@ -294,7 +456,7 @@ impl LoopStats {
         self.max_response_time = self.max_response_time.max(response_time);
 
         let elapsed = self.interval_started.elapsed();
-        if elapsed < STATS_INTERVAL {
+        if elapsed < HEALTH_LOG_INTERVAL {
             return;
         }
 
