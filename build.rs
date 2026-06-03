@@ -2,6 +2,8 @@
 //!
 //! The version is already injected via `CARGO_PKG_VERSION` by Cargo.
 
+use std::fs;
+use std::path::Path;
 use std::process::Command;
 
 fn main() {
@@ -17,6 +19,29 @@ fn main() {
 
     println!("cargo:rustc-env=GIT_HASH={hash}");
 
-    // Rebuild if .git/HEAD changes.
-    println!("cargo:rerun-if-changed=.git/HEAD");
+    emit_git_rerun_paths();
+}
+
+fn emit_git_rerun_paths() {
+    let git_dir = Path::new(".git");
+    let head_path = git_dir.join("HEAD");
+
+    println!("cargo:rerun-if-changed={}", head_path.display());
+
+    let Ok(head) = fs::read_to_string(&head_path) else {
+        return;
+    };
+
+    let Some(ref_name) = head.trim().strip_prefix("ref: ") else {
+        return;
+    };
+
+    println!(
+        "cargo:rerun-if-changed={}",
+        git_dir.join(ref_name).display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        git_dir.join("packed-refs").display()
+    );
 }
