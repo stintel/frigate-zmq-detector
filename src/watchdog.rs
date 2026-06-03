@@ -1,7 +1,7 @@
 //! Process-level watchdogs for native calls that can hang inside TFLite/delegates.
 //!
 //! Contains two watchdogs:
-//! 1. **ProcessWatchdog** — fires `std::process::abort()` when a single native call
+//! 1. **ProcessWatchdog** — exits the worker when a single native call
 //!    (e.g., inference) exceeds its deadline.
 //! 2. **ProgressWatchdog** — tracks request/response progress and triggers
 //!    a self-exit when no successful response completes within a timeout,
@@ -12,6 +12,11 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 static WATCHDOG: OnceLock<Arc<ProcessWatchdog>> = OnceLock::new();
+
+/// Exit code when a single native call exceeds its process-watchdog deadline.
+/// This avoids SIGABRT/core dumps while still letting the supervisor recycle
+/// the wedged worker.
+pub const EXIT_CODE_NATIVE_TIMEOUT: i32 = 71;
 
 struct ProcessWatchdog {
     state: Mutex<WatchdogState>,
@@ -105,16 +110,17 @@ impl ProcessWatchdog {
             if now >= armed.deadline {
                 let elapsed = armed.timeout + now.duration_since(armed.deadline);
                 log::error!(
-                    "{} exceeded {:.1?} after {:.1?}; aborting worker",
+                    "{} exceeded {:.1?} after {:.1?}; exiting worker with code {}",
                     armed.label,
                     armed.timeout,
-                    elapsed
+                    elapsed,
+                    EXIT_CODE_NATIVE_TIMEOUT
                 );
                 eprintln!(
-                    "{} exceeded {:.1?} after {:.1?}; aborting worker",
-                    armed.label, armed.timeout, elapsed
+                    "{} exceeded {:.1?} after {:.1?}; exiting worker with code {}",
+                    armed.label, armed.timeout, elapsed, EXIT_CODE_NATIVE_TIMEOUT
                 );
-                std::process::abort();
+                std::process::exit(EXIT_CODE_NATIVE_TIMEOUT);
             }
 
             let wait = armed.deadline.duration_since(now);

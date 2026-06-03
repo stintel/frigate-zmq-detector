@@ -14,7 +14,7 @@ TFLite C runtime, and the Mesa Teflon delegate.
 - **Zero-panic runtime** — all errors handled gracefully; returns zero detections
   on failure instead of crashing
 - **Worker supervision** — keeps the ZMQ endpoint alive by restarting the worker
-  if the native TFLite/delegate stack aborts
+  if the native TFLite/delegate stack times out or exits
 
 ## Quick Start
 
