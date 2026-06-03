@@ -95,7 +95,11 @@ fn run() -> Result<()> {
         log::info!("Loading model from {}", model_path.display());
         let data = std::fs::read(model_path)
             .map_err(|e| SidecarError::Io(format!("read {}: {e:#?}", model_path.display())))?;
-        manager.cache_model(data)?;
+        let model_name = model_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_string);
+        manager.cache_model(data, model_name)?;
     } else {
         log::info!("No model pre-loaded; awaiting ZMQ transfer from Frigate");
     }

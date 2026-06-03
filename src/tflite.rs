@@ -26,6 +26,7 @@ pub struct TfliteManager {
     library: &'static Library,
     /// Raw .tflite bytes received from Frigate or read from disk.
     model_bytes: Option<Vec<u8>>,
+    model_name: Option<String>,
     model: Option<&'static Model<'static>>,
     interpreter: Option<Interpreter<'static>>,
     delegate_path: String,
@@ -39,6 +40,7 @@ impl TfliteManager {
         Self {
             library,
             model_bytes: None,
+            model_name: None,
             model: None,
             interpreter: None,
             delegate_path: String::new(),
@@ -59,8 +61,20 @@ impl TfliteManager {
         self.interpreter.is_some()
     }
 
+    /// Returns the name associated with the loaded model, if known.
+    #[must_use]
+    pub fn model_name(&self) -> Option<&str> {
+        self.model_name.as_deref()
+    }
+
+    /// Returns true if the requested model is the active loaded model.
+    #[must_use]
+    pub fn is_model_ready(&self, model_name: &str) -> bool {
+        self.is_ready() && self.model_name() == Some(model_name)
+    }
+
     /// Cache model bytes from a ZMQ transfer or file load.
-    pub fn cache_model(&mut self, data: Vec<u8>) -> Result<()> {
+    pub fn cache_model(&mut self, data: Vec<u8>, model_name: Option<String>) -> Result<()> {
         let model = Model::from_bytes(self.library, data.clone())
             .map_err(|e| SidecarError::Tflite(format!("Model validation failed: {e:#?}")))?;
         let model = Box::new(model);
@@ -88,6 +102,7 @@ impl TfliteManager {
         };
 
         self.model_bytes = Some(data);
+        self.model_name = model_name;
         self.interpreter = Some(interpreter);
         self.model = Some(model_ref);
 

@@ -51,7 +51,7 @@ pub(crate) fn handle_model_request(
 
     // Single frame: availability query.
     if frames.len() == 1 {
-        let loaded = tflite.is_ready();
+        let loaded = tflite.is_model_ready(name);
         log::info!("Model availability request for {name}: loaded={loaded}");
         return Ok(model_availability_reply(loaded));
     }
@@ -62,11 +62,12 @@ pub(crate) fn handle_model_request(
         .ok_or_else(|| SidecarError::Zmq("model transfer missing data frame".to_string()))?;
 
     if tflite.is_ready() {
+        let current_name = tflite.model_name().unwrap_or("unknown");
         log::warn!(
-            "Ignoring model transfer for {name} ({size} bytes); preloaded model is already ready",
+            "Ignoring model transfer for {name} ({size} bytes); model {current_name} is already ready",
             size = data.len()
         );
-        return Ok(model_loaded_reply(true, true));
+        return Ok(model_loaded_reply(false, tflite.is_model_ready(name)));
     }
 
     let data_bytes: Vec<u8> = data.to_vec();
@@ -74,7 +75,7 @@ pub(crate) fn handle_model_request(
         "Caching model {name} ({size} bytes)",
         size = data_bytes.len()
     );
-    tflite.cache_model(data_bytes)?;
+    tflite.cache_model(data_bytes, Some(name.to_string()))?;
     log::info!("Model {name} loaded");
 
     Ok(model_loaded_reply(true, true))
