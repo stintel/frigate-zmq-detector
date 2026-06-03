@@ -53,7 +53,7 @@ pub(crate) fn handle_model_request(
     if frames.len() == 1 {
         let loaded = tflite.is_model_ready(name);
         log::info!("Model availability request for {name}: loaded={loaded}");
-        return Ok(model_availability_reply(loaded));
+        return Ok(model_availability_reply(name, loaded, tflite.model_name()));
     }
 
     // Two frames: model data transfer (header + .tflite bytes).
@@ -63,11 +63,27 @@ pub(crate) fn handle_model_request(
 
     if tflite.is_ready() {
         let current_name = tflite.model_name().unwrap_or("unknown");
+        if tflite.is_model_ready(name) {
+            log::info!("Ignoring model transfer for {name}; model is already ready");
+            return Ok(model_loaded_reply(
+                name,
+                true,
+                true,
+                Some("model already loaded"),
+                None,
+            ));
+        }
         log::warn!(
             "Ignoring model transfer for {name} ({size} bytes); model {current_name} is already ready",
             size = data.len()
         );
-        return Ok(model_loaded_reply(false, tflite.is_model_ready(name)));
+        return Ok(model_loaded_reply(
+            name,
+            false,
+            false,
+            Some("different model already loaded"),
+            Some(current_name),
+        ));
     }
 
     let data_bytes: Vec<u8> = data.to_vec();
@@ -78,16 +94,50 @@ pub(crate) fn handle_model_request(
     tflite.cache_model(data_bytes, Some(name.to_string()))?;
     log::info!("Model {name} loaded");
 
-    Ok(model_loaded_reply(true, true))
+    Ok(model_loaded_reply(
+        name,
+        true,
+        true,
+        Some("model loaded"),
+        None,
+    ))
 }
 
-fn model_availability_reply(loaded: bool) -> ZmqMessage {
-    let resp = json!({"model_available": loaded, "model_loaded": loaded});
+fn model_availability_reply(
+    model_name: &str,
+    loaded: bool,
+    current_model: Option<&str>,
+) -> ZmqMessage {
+    let mut resp = json!({
+        "model_available": loaded,
+        "model_loaded": loaded,
+        "model_name": model_name,
+        "message": if loaded { "model loaded" } else { "model not loaded" },
+    });
+    if !loaded && let Some(current_model) = current_model {
+        resp["current_model"] = json!(current_model);
+    }
     ZmqMessage::from(resp.to_string().into_bytes())
 }
 
-fn model_loaded_reply(saved: bool, loaded: bool) -> ZmqMessage {
-    let resp = json!({"model_saved": saved, "model_loaded": loaded});
+fn model_loaded_reply(
+    model_name: &str,
+    saved: bool,
+    loaded: bool,
+    message: Option<&str>,
+    current_model: Option<&str>,
+) -> ZmqMessage {
+    let mut resp = json!({
+        "model_saved": saved,
+        "model_loaded": loaded,
+        "model_name": model_name,
+    });
+    if let Some(message) = message {
+        resp["message"] = json!(message);
+    }
+    if let Some(current_model) = current_model {
+        resp["current_model"] = json!(current_model);
+    }
     ZmqMessage::from(resp.to_string().into_bytes())
 }
 
