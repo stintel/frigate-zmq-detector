@@ -169,6 +169,9 @@ pub struct ProgressWatchdog {
     /// Timestamp (ms since epoch) when the last successful response was sent.
     /// 0 means no success yet.
     last_success_ms: AtomicU64,
+    /// Timestamp (ms since epoch) when the last failed response completed.
+    /// 0 means no failure yet.
+    last_failure_ms: AtomicU64,
     /// Timestamp (ms since epoch) when the first request started processing.
     /// 0 means no inference request has been observed yet.
     first_request_ms: AtomicU64,
@@ -194,6 +197,7 @@ impl ProgressWatchdog {
             total_successes: AtomicU64::new(0),
             total_failures: AtomicU64::new(0),
             last_success_ms: AtomicU64::new(0),
+            last_failure_ms: AtomicU64::new(0),
             first_request_ms: AtomicU64::new(0),
             in_flight_start_ms: AtomicU64::new(0),
             max_no_progress_secs,
@@ -239,6 +243,8 @@ impl ProgressWatchdog {
 
     /// Mark a failed response completion.
     pub fn response_err(&self) {
+        self.last_failure_ms
+            .store(elapsed_ms() + 1, Ordering::Relaxed);
         self.total_failures.fetch_add(1, Ordering::Relaxed);
         self.in_flight_start_ms.store(0, Ordering::Relaxed);
     }
@@ -252,6 +258,7 @@ impl ProgressWatchdog {
             total_successes: self.total_successes.load(Ordering::Relaxed),
             total_failures: self.total_failures.load(Ordering::Relaxed),
             last_success_ms: self.last_success_ms.load(Ordering::Relaxed),
+            last_failure_ms: self.last_failure_ms.load(Ordering::Relaxed),
             first_request_ms: self.first_request_ms.load(Ordering::Relaxed),
             in_flight_start_ms: self.in_flight_start_ms.load(Ordering::Relaxed),
             now_ms: elapsed_ms(),
@@ -300,20 +307,23 @@ impl ProgressWatchdog {
                 }
             }
 
-            let secs_since_success = snap.now_ms.saturating_sub(snap.last_success_ms) / 1000;
-            if secs_since_success >= self.max_no_progress_secs {
-                log::error!(
-                    "progress watchdog fired: no success for {}s (requests={}, successes={}, \
-                     failures={}, last_success_age={:.1}s, in_flight_age={:.1}s); exiting with code {}",
-                    secs_since_success,
-                    snap.total_requests,
-                    snap.total_successes,
-                    snap.total_failures,
-                    snap.last_success_age_secs(),
-                    snap.in_flight_age_secs(),
-                    EXIT_CODE_NO_PROGRESS
-                );
-                return Some("no progress timeout");
+            if snap.last_failure_ms > snap.last_success_ms {
+                let secs_since_failure = snap.now_ms.saturating_sub(snap.last_failure_ms) / 1000;
+                if secs_since_failure >= self.max_no_progress_secs {
+                    log::error!(
+                        "progress watchdog fired: no success for {}s since response failure \
+                         (requests={}, successes={}, failures={}, last_success_age={:.1}s, \
+                         in_flight_age={:.1}s); exiting with code {}",
+                        secs_since_failure,
+                        snap.total_requests,
+                        snap.total_successes,
+                        snap.total_failures,
+                        snap.last_success_age_secs(),
+                        snap.in_flight_age_secs(),
+                        EXIT_CODE_NO_PROGRESS
+                    );
+                    return Some("failure timeout");
+                }
             }
         }
 
@@ -351,6 +361,7 @@ pub struct HealthSnapshot {
     pub total_successes: u64,
     pub total_failures: u64,
     pub last_success_ms: u64,
+    pub last_failure_ms: u64,
     pub first_request_ms: u64,
     pub in_flight_start_ms: u64,
     pub now_ms: u64,
@@ -403,6 +414,7 @@ mod tests {
         assert_eq!(snap.total_successes, 0);
         assert_eq!(snap.total_failures, 0);
         assert_eq!(snap.last_success_ms, 0);
+        assert_eq!(snap.last_failure_ms, 0);
         assert_eq!(snap.first_request_ms, 0);
         assert_eq!(snap.in_flight_start_ms, 0);
     }
@@ -460,6 +472,7 @@ mod tests {
         assert_eq!(snap.total_requests, 1);
         assert_eq!(snap.total_successes, 0);
         assert_eq!(snap.total_failures, 1);
+        assert!(snap.last_failure_ms > 0, "last_failure should be set");
         assert_eq!(snap.in_flight_start_ms, 0, "in_flight should be cleared");
     }
 
@@ -546,6 +559,21 @@ mod tests {
         assert!(
             reason.is_none(),
             "watchdog should not fire when last success is recent; got {reason:?}"
+        );
+    }
+
+    #[test]
+    fn test_idle_after_success_does_not_fire() {
+        let wd = new_watchdog(1, 0, 0);
+
+        wd.request_start();
+        wd.response_ok();
+
+        std::thread::sleep(Duration::from_secs(2));
+        let reason = wd.check();
+        assert!(
+            reason.is_none(),
+            "watchdog should not fire while idle after a success; got {reason:?}"
         );
     }
 
