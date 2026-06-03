@@ -75,4 +75,9 @@ pub struct Cli {
     /// on a hung recv. Set to 0 to disable.
     #[arg(long, env = "FRIGATE_SIDECAR_RECV_TIMEOUT_SECS", default_value_t = 30)]
     pub recv_timeout_secs: u64,
+
+    /// Timeout for a single ZMQ send call (seconds). Prevents blocking forever
+    /// while replying to a disconnected Frigate request. Set to 0 to disable.
+    #[arg(long, env = "FRIGATE_SIDECAR_SEND_TIMEOUT_SECS", default_value_t = 5)]
+    pub send_timeout_secs: u64,
 }

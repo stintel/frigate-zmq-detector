@@ -71,6 +71,7 @@ cargo build --release
 | `--inference-timeout-ms` | `150` | Abort and restart the worker if one inference exceeds this |
 | `--tflite-lib` | `/usr/lib/aarch64-linux-gnu/libtensorflow-lite.so.2.14.1` | TFLite C library path |
 | `--debug` | `false` | Enable debug logging |
+| `--send-timeout-secs` | `5` | Timeout for a single ZMQ reply send; set to `0` to disable |
 
 By default the binary starts a small supervisor process which spawns the actual
 TFLite/ZMQ worker. Set `FRIGATE_SIDECAR_SUPERVISE=0` to disable this and run the

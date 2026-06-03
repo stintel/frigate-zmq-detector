@@ -70,6 +70,7 @@ fn run() -> Result<()> {
         cli.max_requests,
         cli.max_lifetime_secs
     );
+    log::info!("ZMQ send timeout: {}s", cli.send_timeout_secs);
 
     // Load TFLite C library.
     let library = edgefirst_tflite::Library::from_path(&cli.tflite_lib).map_err(|e| {
@@ -148,6 +149,7 @@ fn run() -> Result<()> {
                 Duration::from_millis(cli.inference_timeout_ms),
                 watchdog,
                 Duration::from_secs(cli.recv_timeout_secs),
+                Duration::from_secs(cli.send_timeout_secs),
             )
             .await
         })
@@ -222,6 +224,7 @@ async fn zmq_rep_loop(
     inference_timeout: Duration,
     health: Arc<ProgressWatchdog>,
     recv_timeout: Duration,
+    send_timeout: Duration,
 ) -> Result<()> {
     let mut socket = RepSocket::new();
 
@@ -327,7 +330,15 @@ async fn zmq_rep_loop(
 
         // Send reply — measure send duration.
         let send_start = Instant::now();
-        let send_ok = match socket.send(reply).await {
+        let send_result = if send_timeout.is_zero() {
+            socket.send(reply).await.map_err(SendFailure::Zmq)
+        } else {
+            match tokio::time::timeout(send_timeout, socket.send(reply)).await {
+                Ok(result) => result.map_err(SendFailure::Zmq),
+                Err(_) => Err(SendFailure::Timeout),
+            }
+        };
+        let send_ok = match send_result {
             Ok(()) => {
                 log::debug!(
                     "Reply sent in {:.1} ms",
@@ -335,8 +346,12 @@ async fn zmq_rep_loop(
                 );
                 true
             }
-            Err(e) => {
+            Err(SendFailure::Zmq(e)) => {
                 log::error!("send reply: {e:#?}");
+                false
+            }
+            Err(SendFailure::Timeout) => {
+                log::error!("send reply timed out after {send_timeout:.1?}");
                 false
             }
         };
@@ -360,6 +375,11 @@ async fn zmq_rep_loop(
 
         stats.record(is_mgmt, request_started.elapsed());
     }
+}
+
+enum SendFailure {
+    Zmq(ZmqError),
+    Timeout,
 }
 
 /// Handle a ZMQ recv error: log, back off on repeated errors, and check watchdog.
