@@ -77,6 +77,13 @@ By default the binary starts a small supervisor process which spawns the actual
 TFLite/ZMQ worker. Set `FRIGATE_SIDECAR_SUPERVISE=0` to disable this and run the
 worker directly.
 
+### ZMQ shutdown behavior
+
+This sidecar uses the pure-Rust `zeromq` crate rather than libzmq, so there is
+no libzmq-style `LINGER` socket option to configure. Reply sends are bounded by
+`--send-timeout-secs`, and worker shutdown drops socket peers instead of waiting
+for old replies to flush.
+
 ## Frigate Configuration
 
 Add this detector to your Frigate `config.yml`:
