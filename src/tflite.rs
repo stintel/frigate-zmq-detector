@@ -63,18 +63,33 @@ impl TfliteManager {
     pub fn cache_model(&mut self, data: Vec<u8>) -> Result<()> {
         let model = Model::from_bytes(self.library, data.clone())
             .map_err(|e| SidecarError::Tflite(format!("Model validation failed: {e:#?}")))?;
-        let model = Box::leak(Box::new(model));
-        let interpreter = build_interpreter(
-            model,
+        let model = Box::new(model);
+        let model_ptr = Box::into_raw(model);
+        // The cached interpreter borrows the model for the process lifetime.
+        // If interpreter construction fails, reconstruct the Box below so the
+        // model allocation is not leaked.
+        let model_ref: &'static Model<'static> = unsafe { &*model_ptr };
+        let interpreter = match build_interpreter(
+            model_ref,
             self.library,
             &self.delegate_path,
             self.use_delegate,
             self.threads,
-        )?;
+        ) {
+            Ok(interpreter) => interpreter,
+            Err(e) => {
+                // SAFETY: model_ptr was created by Box::into_raw above and no
+                // interpreter exists that can hold this reference on error.
+                unsafe {
+                    drop(Box::from_raw(model_ptr));
+                }
+                return Err(e);
+            }
+        };
 
         self.model_bytes = Some(data);
         self.interpreter = Some(interpreter);
-        self.model = Some(model);
+        self.model = Some(model_ref);
 
         Ok(())
     }
