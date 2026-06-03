@@ -169,6 +169,9 @@ pub struct ProgressWatchdog {
     /// Timestamp (ms since epoch) when the last successful response was sent.
     /// 0 means no success yet.
     last_success_ms: AtomicU64,
+    /// Timestamp (ms since epoch) when the first request started processing.
+    /// 0 means no inference request has been observed yet.
+    first_request_ms: AtomicU64,
     /// Timestamp (ms since epoch) when the current request started processing.
     /// 0 means no in-flight request.
     in_flight_start_ms: AtomicU64,
@@ -191,6 +194,7 @@ impl ProgressWatchdog {
             total_successes: AtomicU64::new(0),
             total_failures: AtomicU64::new(0),
             last_success_ms: AtomicU64::new(0),
+            first_request_ms: AtomicU64::new(0),
             in_flight_start_ms: AtomicU64::new(0),
             max_no_progress_secs,
             max_requests,
@@ -204,9 +208,15 @@ impl ProgressWatchdog {
     /// Mark the start of a new inference request.
     pub fn request_start(&self) {
         self.total_requests.fetch_add(1, Ordering::Relaxed);
+        let started_ms = elapsed_ms() + 1;
+        let _ = self.first_request_ms.compare_exchange(
+            0,
+            started_ms,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        );
         // Store +1 so that 0 is always a valid "not set" sentinel.
-        self.in_flight_start_ms
-            .store(elapsed_ms() + 1, Ordering::Relaxed);
+        self.in_flight_start_ms.store(started_ms, Ordering::Relaxed);
     }
 
     /// Mark a successful response completion.
@@ -242,6 +252,7 @@ impl ProgressWatchdog {
             total_successes: self.total_successes.load(Ordering::Relaxed),
             total_failures: self.total_failures.load(Ordering::Relaxed),
             last_success_ms: self.last_success_ms.load(Ordering::Relaxed),
+            first_request_ms: self.first_request_ms.load(Ordering::Relaxed),
             in_flight_start_ms: self.in_flight_start_ms.load(Ordering::Relaxed),
             now_ms: elapsed_ms(),
         }
@@ -273,12 +284,20 @@ impl ProgressWatchdog {
         // No-progress timeout — only fires if we have seen at least one request
         if self.max_no_progress_secs > 0 && snap.total_requests > 0 {
             if snap.last_success_ms == 0 {
-                // requests came in but never succeeded
-                log::error!(
-                    "progress watchdog: {} request(s) received but 0 success; exiting",
-                    snap.total_requests
-                );
-                return Some("no success ever");
+                let secs_since_first_request =
+                    snap.now_ms.saturating_sub(snap.first_request_ms) / 1000;
+                if secs_since_first_request >= self.max_no_progress_secs {
+                    log::error!(
+                        "progress watchdog fired: no success for {}s since first request \
+                         (requests={}, failures={}, in_flight_age={:.1}s); exiting with code {}",
+                        secs_since_first_request,
+                        snap.total_requests,
+                        snap.total_failures,
+                        snap.in_flight_age_secs(),
+                        EXIT_CODE_NO_PROGRESS
+                    );
+                    return Some("no success timeout");
+                }
             }
 
             let secs_since_success = snap.now_ms.saturating_sub(snap.last_success_ms) / 1000;
@@ -332,6 +351,7 @@ pub struct HealthSnapshot {
     pub total_successes: u64,
     pub total_failures: u64,
     pub last_success_ms: u64,
+    pub first_request_ms: u64,
     pub in_flight_start_ms: u64,
     pub now_ms: u64,
 }
@@ -383,6 +403,7 @@ mod tests {
         assert_eq!(snap.total_successes, 0);
         assert_eq!(snap.total_failures, 0);
         assert_eq!(snap.last_success_ms, 0);
+        assert_eq!(snap.first_request_ms, 0);
         assert_eq!(snap.in_flight_start_ms, 0);
     }
 
@@ -409,6 +430,10 @@ mod tests {
         assert!(
             snap.in_flight_start_ms > 0,
             "in_flight_start_ms should be > 0 after request_start"
+        );
+        assert!(
+            snap.first_request_ms > 0,
+            "first_request_ms should be > 0 after request_start"
         );
     }
 
@@ -492,6 +517,20 @@ mod tests {
         assert!(
             reason.is_some(),
             "watchdog should fire after no success for longer than timeout; got {reason:?}"
+        );
+    }
+
+    #[test]
+    fn test_no_success_waits_for_timeout() {
+        let wd = new_watchdog(60, 0, 0);
+
+        wd.request_start();
+        wd.response_err();
+
+        let reason = wd.check();
+        assert!(
+            reason.is_none(),
+            "watchdog should wait for timeout before firing with no successes; got {reason:?}"
         );
     }
 
