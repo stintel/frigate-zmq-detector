@@ -33,7 +33,7 @@ RUN apt-get update && \
         && rm -rf /var/lib/apt/lists/* && \
     mkdir -p /models
 
-COPY --from=builder /build/target/aarch64-unknown-linux-gnu/release/frigate-sidecar /usr/local/bin/
+COPY --from=builder /build/target/aarch64-unknown-linux-gnu/release/frigate-zmq-detector /usr/local/bin/
 COPY --from=builder /build/entrypoint.sh /entrypoint.sh
 
 # Teflon delegate and TFLite 2.14.1 are installed above.

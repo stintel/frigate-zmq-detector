@@ -379,7 +379,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "frigate-sidecar"
+name = "frigate-zmq-detector"
 version = "0.1.0"
 dependencies = [
  "clap",

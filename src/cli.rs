@@ -6,7 +6,7 @@ use clap::Parser;
 
 /// Frigate ZMQ detector sidecar with `TFLite` + Mesa Teflon delegate.
 #[derive(Parser, Debug, Clone)]
-#[command(name = "frigate-sidecar", version)]
+#[command(name = "frigate-zmq-detector", version)]
 pub struct Cli {
     /// ZMQ REP endpoint to bind (`tcp://host:port` or `ipc://path`).
     #[arg(long, env = "ZMQ_ENDPOINT", default_value = "tcp://0.0.0.0:5555")]
@@ -56,28 +56,40 @@ pub struct Cli {
     /// Set to 0 to disable. Protects against wedged ZMQ recv or hung inference.
     #[arg(
         long,
-        env = "FRIGATE_SIDECAR_MAX_NO_PROGRESS_SECS",
+        env = "FRIGATE_ZMQ_DETECTOR_MAX_NO_PROGRESS_SECS",
         default_value_t = 60
     )]
     pub max_no_progress_secs: u64,
 
     /// Exit cleanly after this many successful inference requests (recycling).
     /// Set to 0 to disable. Mitigates gradual resource leaks.
-    #[arg(long, env = "FRIGATE_SIDECAR_MAX_REQUESTS", default_value_t = 0)]
+    #[arg(long, env = "FRIGATE_ZMQ_DETECTOR_MAX_REQUESTS", default_value_t = 0)]
     pub max_requests: u64,
 
     /// Exit cleanly after this many seconds of uptime (recycling).
     /// Set to 0 to disable.
-    #[arg(long, env = "FRIGATE_SIDECAR_MAX_LIFETIME_SECS", default_value_t = 0)]
+    #[arg(
+        long,
+        env = "FRIGATE_ZMQ_DETECTOR_MAX_LIFETIME_SECS",
+        default_value_t = 0
+    )]
     pub max_lifetime_secs: u64,
 
     /// Timeout for a single ZMQ recv call (seconds). Prevents infinite blocking
     /// on a hung recv. Set to 0 to disable.
-    #[arg(long, env = "FRIGATE_SIDECAR_RECV_TIMEOUT_SECS", default_value_t = 30)]
+    #[arg(
+        long,
+        env = "FRIGATE_ZMQ_DETECTOR_RECV_TIMEOUT_SECS",
+        default_value_t = 30
+    )]
     pub recv_timeout_secs: u64,
 
     /// Timeout for a single ZMQ send call (seconds). Prevents blocking forever
     /// while replying to a disconnected Frigate request. Set to 0 to disable.
-    #[arg(long, env = "FRIGATE_SIDECAR_SEND_TIMEOUT_SECS", default_value_t = 5)]
+    #[arg(
+        long,
+        env = "FRIGATE_ZMQ_DETECTOR_SEND_TIMEOUT_SECS",
+        default_value_t = 5
+    )]
     pub send_timeout_secs: u64,
 }

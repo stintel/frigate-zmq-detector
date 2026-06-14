@@ -23,8 +23,8 @@ use crate::watchdog::{EXIT_CODE_NO_PROGRESS, ProgressWatchdog};
 
 const HEALTH_LOG_INTERVAL: Duration = Duration::from_secs(60);
 const WATCHDOG_CHECK_INTERVAL: Duration = Duration::from_secs(5);
-const WORKER_ENV: &str = "FRIGATE_SIDECAR_WORKER";
-const SUPERVISE_ENV: &str = "FRIGATE_SIDECAR_SUPERVISE";
+const WORKER_ENV: &str = "FRIGATE_ZMQ_DETECTOR_WORKER";
+const SUPERVISE_ENV: &str = "FRIGATE_ZMQ_DETECTOR_SUPERVISE";
 
 // ---------------------------------------------------------------------------
 // Entrypoint
@@ -55,7 +55,7 @@ fn run() -> Result<()> {
     }
 
     log::info!(
-        "Starting frigate-sidecar v{} (git {})",
+        "Starting frigate-zmq-detector v{} (git {})",
         env!("CARGO_PKG_VERSION"),
         env!("GIT_HASH")
     );
