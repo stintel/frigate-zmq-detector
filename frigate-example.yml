@@ -3,31 +3,31 @@
 # Example Frigate configuration fragment for the ZMQ detector.
 # Merge this into your existing config.yml under `detectors:`.
 #
-# The ZMQ detector sends inference requests over ZMQ to this sidecar
+# The ZMQ detector sends inference requests over ZMQ to this detector
 # and receives post-processed SSD detection results.
 #
-# Replace the `endpoint` with the IP:port of the sidecar container.
+# Replace the `endpoint` with the IP:port of the detector container.
 
 detectors:
-  teflon_sidecar:
+  teflon:
     # zmq tells Frigate to use the ZMQ REQ/REP detector protocol.
     type: zmq
 
-    # ZMQ endpoint where the sidecar is listening.
+    # ZMQ endpoint where frigate-zmq-detector is listening.
     endpoint: tcp://127.0.0.1:5555
 
-    # Keep this higher than the sidecar INFERENCE_TIMEOUT_MS. The sidecar
+    # Keep this higher than the detector INFERENCE_TIMEOUT_MS. The detector
     # default is 150 ms, so Frigate has time to receive the restart/error path
     # before its own detector watchdog starts interfering.
     request_timeout_ms: 300
 
-# --- Optional: NPU device passthrough for the sidecar container -----------
+# --- Optional: NPU device passthrough for the detector container ----------
 #
-# If running the sidecar in a container, pass through the Rocket accel node:
+# If running the detector in a container, pass through the Rocket accel node:
 #
 #   podman run --rm \
 #     --network host \
 #     --device /dev/accel/accel0 \
-#     frigate-sidecar \
+#     frigate-zmq-detector \
 #       --endpoint tcp://0.0.0.0:5555 \
 #       --threads 1

@@ -1,1 +1,6 @@
 /target
+/.qwen
+*.orig
+*.patch
+*.tflite
+models/
