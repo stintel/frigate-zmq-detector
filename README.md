@@ -221,6 +221,10 @@ stack. This appears to be below the detector process rather than a normal
 application crash path. Kernel-side Rocket fixes are being tested separately in
 <https://github.com/stintel/linux/tree/fixes/rocket>.
 
+With those fixes applied, all 3 NPU cores are being used, compared to only 2
+cores before. The same systems have also reached more than 8 days of uptime;
+before those fixes, they would often reboot several times within 24 hours.
+
 Those kernel patches are not being submitted upstream at this time. They touch
 subsystems used by Rocket that I am not familiar enough with to review and
 submit under the kernel project's AI contribution policy.
