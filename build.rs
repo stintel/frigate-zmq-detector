@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Build script to embed git commit hash at compile time.
 //!
 //! The version is already injected via `CARGO_PKG_VERSION` by Cargo.

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIT -->
+
 # Frigate ZMQ TFLite Sidecar
 
 Standalone Rust detector sidecar for Frigate using ZMQ REQ/REP protocol, the
@@ -153,4 +155,9 @@ Frigate detection request.
 
 ## License
 
-MIT
+Licensed under either of:
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option.

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+
 # ---- Builder ----
 FROM docker.io/library/ubuntu:26.04 AS builder
 

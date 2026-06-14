@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Process-level watchdogs for native calls that can hang inside TFLite/delegates.
 //!
 //! Contains two watchdogs:

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! `TFLite` inference engine wrapping edgefirst-tflite.
 
 use std::path::Path;

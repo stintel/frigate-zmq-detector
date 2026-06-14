@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+
 # Example Frigate configuration fragment for the ZMQ detector.
 # Merge this into your existing config.yml under `detectors:`.
 #

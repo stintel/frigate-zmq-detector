@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! ZMQ REQ/REP protocol implementation matching Frigate `zmq_ipc` plugin.
 
 use serde_json::json;

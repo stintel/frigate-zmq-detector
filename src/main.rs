@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Frigate ZMQ detector sidecar with `TFLite` + Mesa Teflon delegate.
 //!
 //! This sidecar listens on a ZMQ REP socket, receives inference requests from
