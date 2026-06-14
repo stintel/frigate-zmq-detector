@@ -261,6 +261,13 @@ Then smoke-test the container with Frigate configured to use the ZMQ detector.
 This project is experimental and does not currently provide a dedicated security
 support process. Please avoid exposing the ZMQ endpoint to untrusted networks.
 
+## Credits
+
+This project was built with the assistance of AI coding agents:
+
+- Codex (OpenAI)
+- Qwen Code with Qwen3.6-27B
+
 ## License
 
 Licensed under either of:
