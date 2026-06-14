@@ -48,7 +48,7 @@ Experimental `0.1.x` project.
   be pre-mounted with `--model`
 - Hardware stability caveat: spontaneous reboots have been observed on Rock 5B+
   systems while running this stack. Kernel-side Rocket fixes are being tested in
-  a local `linux.git` branch named `fixes/rocket`.
+  <https://github.com/stintel/linux/tree/fixes/rocket>.
 
 ## Features
 
@@ -219,7 +219,11 @@ host install can fail because of ABI mismatches.
 Spontaneous Rock 5B+ reboots have been observed while running the Rocket/Teflon
 stack. This appears to be below the detector process rather than a normal
 application crash path. Kernel-side Rocket fixes are being tested separately in
-a local `linux.git` branch named `fixes/rocket`.
+<https://github.com/stintel/linux/tree/fixes/rocket>.
+
+Those kernel patches are not being submitted upstream at this time. They touch
+subsystems used by Rocket that I am not familiar enough with to review and
+submit under the kernel project's AI contribution policy.
 
 ### ZMQ Connection Refused
 
