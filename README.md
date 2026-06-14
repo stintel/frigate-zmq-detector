@@ -46,6 +46,9 @@ Experimental `0.1.x` project.
 - ZMQ transport: pure Rust `zeromq`; `libzmq` is not used
 - Default model handling: Frigate can transfer the model over ZMQ, or a model can
   be pre-mounted with `--model`
+- Hardware stability caveat: spontaneous reboots have been observed on Rock 5B+
+  systems while running this stack. Kernel-side Rocket fixes are being tested in
+  a local `linux.git` branch named `fixes/rocket`.
 
 ## Features
 
@@ -210,6 +213,13 @@ ls -la /dev/accel/accel0
 Also verify that the TFLite runtime and delegate packages come from a compatible
 distribution or image. Mixing libraries copied from another Frigate image or
 host install can fail because of ABI mismatches.
+
+### Rock 5B+ Reboots
+
+Spontaneous Rock 5B+ reboots have been observed while running the Rocket/Teflon
+stack. This appears to be below the detector process rather than a normal
+application crash path. Kernel-side Rocket fixes are being tested separately in
+a local `linux.git` branch named `fixes/rocket`.
 
 ### ZMQ Connection Refused
 
