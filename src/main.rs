@@ -45,6 +45,7 @@ fn main() {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
+    validate_config(&cli)?;
 
     // Initialize logging.
     let _ = env_logger::Builder::from_env(env_logger::Env::new().default_filter_or(if cli.debug {
@@ -78,20 +79,23 @@ fn run() -> Result<()> {
 
     // Select detector backend.
     let mut manager = match cli.backend {
+        BackendKind::EdgeTpu => {
+            log::info!("Detector backend: edgetpu");
+
+            let library = load_tflite(&cli.tflite_lib)?;
+            let library = Box::leak(Box::new(library));
+
+            let mut manager = TfliteManager::new(library, cli.threads);
+            manager.set_delegate(&cli.edgetpu_delegate.to_string_lossy(), true);
+
+            manager
+        }
         BackendKind::Teflon => {
             log::info!("Detector backend: teflon");
 
-            // Load TFLite C library.
-            let library = edgefirst_tflite::Library::from_path(&cli.tflite_lib).map_err(|e| {
-                SidecarError::Tflite(format!(
-                    "Failed to load TFLite library {}: {e:#?}",
-                    cli.tflite_lib.display()
-                ))
-            })?;
-            log::info!("Loaded TFLite from {}", cli.tflite_lib.display());
+            let library = load_tflite(&cli.tflite_lib)?;
             let library = Box::leak(Box::new(library));
 
-            // Build manager.
             let mut manager = TfliteManager::new(library, cli.threads);
 
             if cli.no_delegate {
@@ -227,6 +231,29 @@ fn install_panic_logger() {
         log::error!("panic: {info}");
         eprintln!("panic: {info}");
     }));
+}
+
+fn load_tflite(
+    path: &std::path::Path,
+) -> std::result::Result<edgefirst_tflite::Library, SidecarError> {
+    let library = edgefirst_tflite::Library::from_path(path).map_err(|e| {
+        SidecarError::Tflite(format!(
+            "Failed to load TFLite library {}: {e:#?}",
+            path.display()
+        ))
+    })?;
+    log::info!("Loaded TFLite from {}", path.display());
+    Ok(library)
+}
+
+fn validate_config(cli: &Cli) -> Result<()> {
+    if cli.no_delegate && cli.backend == BackendKind::EdgeTpu {
+        return Err(SidecarError::InvalidConfiguration(
+            "--backend edgetpu requires the EdgeTPU delegate; --no-delegate is only supported with --backend teflon".into(),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Main ZMQ REP server loop — hardened with recv timeout, error backoff,
