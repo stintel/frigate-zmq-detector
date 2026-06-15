@@ -20,13 +20,10 @@ pub struct Cli {
     /// Detector backend to use.
     #[arg(long, env = "BACKEND", default_value = "teflon")]
     pub backend: BackendKind,
-    /// ZMQ REP endpoint to bind (`tcp://host:port` or `ipc://path`).
-    #[arg(long, env = "ZMQ_ENDPOINT", default_value = "tcp://0.0.0.0:5555")]
-    pub endpoint: String,
 
-    /// Path to `TFLite` model file. If set, ZMQ model transfers are acknowledged but ignored.
-    #[arg(long, env = "MODEL_PATH")]
-    pub model: Option<PathBuf>,
+    /// Enable verbose debug logging.
+    #[arg(long, short, env = "DEBUG", default_value_t = false)]
+    pub debug: bool,
 
     /// Path to Teflon delegate shared library.
     #[arg(
@@ -36,33 +33,22 @@ pub struct Cli {
     )]
     pub delegate: PathBuf,
 
-    /// Number of CPU threads for `TFLite` interpreter.
-    #[arg(long, env = "TFLITE_THREADS", default_value_t = 1)]
-    pub threads: i32,
-
-    /// Number of warmup runs at startup.
-    #[arg(long, env = "WARMUP_RUNS", default_value_t = 3)]
-    pub warmup_runs: u32,
+    /// ZMQ REP endpoint to bind (`tcp://host:port` or `ipc://path`).
+    #[arg(long, env = "ZMQ_ENDPOINT", default_value = "tcp://0.0.0.0:5555")]
+    pub endpoint: String,
 
     /// Abort and restart the worker if one inference takes longer than this.
     #[arg(long, env = "INFERENCE_TIMEOUT_MS", default_value_t = 150)]
     pub inference_timeout_ms: u64,
 
-    /// Disable Teflon delegate (CPU-only mode).
-    #[arg(long, env = "NO_DELEGATE", default_value_t = false)]
-    pub no_delegate: bool,
-
-    /// `TFLite` shared library path.
+    /// Exit cleanly after this many seconds of uptime (recycling).
+    /// Set to 0 to disable.
     #[arg(
         long,
-        env = "TFLITE_LIB",
-        default_value = "/usr/lib/aarch64-linux-gnu/libtensorflow-lite.so.2.14.1"
+        env = "FRIGATE_ZMQ_DETECTOR_MAX_LIFETIME_SECS",
+        default_value_t = 0
     )]
-    pub tflite_lib: PathBuf,
-
-    /// Enable verbose debug logging.
-    #[arg(long, short, env = "DEBUG", default_value_t = false)]
-    pub debug: bool,
+    pub max_lifetime_secs: u64,
 
     /// Exit if no successful response completes within this many seconds.
     /// Set to 0 to disable. Protects against wedged ZMQ recv or hung inference.
@@ -78,14 +64,13 @@ pub struct Cli {
     #[arg(long, env = "FRIGATE_ZMQ_DETECTOR_MAX_REQUESTS", default_value_t = 0)]
     pub max_requests: u64,
 
-    /// Exit cleanly after this many seconds of uptime (recycling).
-    /// Set to 0 to disable.
-    #[arg(
-        long,
-        env = "FRIGATE_ZMQ_DETECTOR_MAX_LIFETIME_SECS",
-        default_value_t = 0
-    )]
-    pub max_lifetime_secs: u64,
+    /// Disable delegate (CPU-only mode).
+    #[arg(long, env = "NO_DELEGATE", default_value_t = false)]
+    pub no_delegate: bool,
+
+    /// Path to `TFLite` model file. If set, ZMQ model transfers are acknowledged but ignored.
+    #[arg(long, env = "MODEL_PATH")]
+    pub model: Option<PathBuf>,
 
     /// Timeout for a single ZMQ recv call (seconds). Prevents infinite blocking
     /// on a hung recv. Set to 0 to disable.
@@ -104,4 +89,20 @@ pub struct Cli {
         default_value_t = 5
     )]
     pub send_timeout_secs: u64,
+
+    /// `TFLite` shared library path.
+    #[arg(
+        long,
+        env = "TFLITE_LIB",
+        default_value = "/usr/lib/aarch64-linux-gnu/libtensorflow-lite.so.2.14.1"
+    )]
+    pub tflite_lib: PathBuf,
+
+    /// Number of CPU threads for `TFLite` interpreter.
+    #[arg(long, env = "TFLITE_THREADS", default_value_t = 1)]
+    pub threads: i32,
+
+    /// Number of warmup runs at startup.
+    #[arg(long, env = "WARMUP_RUNS", default_value_t = 3)]
+    pub warmup_runs: u32,
 }
