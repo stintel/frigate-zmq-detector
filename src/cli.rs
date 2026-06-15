@@ -9,6 +9,8 @@ use clap::{Parser, ValueEnum};
 /// Detector backend kind.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
 pub enum BackendKind {
+    #[value(name = "edgetpu")]
+    EdgeTpu,
     #[default]
     Teflon,
 }
@@ -20,6 +22,10 @@ pub struct Cli {
     /// Detector backend to use.
     #[arg(long, env = "BACKEND", default_value = "teflon")]
     pub backend: BackendKind,
+
+    /// Path to EdgeTPU delegate shared library.
+    #[arg(long, env = "EDGETPU_LIB", default_value = "libedgetpu.so.1.0")]
+    pub edgetpu_delegate: PathBuf,
 
     /// Enable verbose debug logging.
     #[arg(long, short, env = "DEBUG", default_value_t = false)]
