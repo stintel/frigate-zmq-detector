@@ -163,6 +163,12 @@ frigate-zmq-detector \
 
 The EdgeTPU backend expects an EdgeTPU-compiled `.tflite` model. The Teflon
 backend uses the regular TFLite model used by Frigate's CPU detector.
+When mixing detector backends, use models with compatible labels, classes, and
+confidence behavior. Frigate tracking receives detections from whichever worker
+completed the request, so large semantic differences between models can make
+tracking less consistent. Frigate's bundled `/cpu_model.tflite` and
+`/edgetpu_model.tflite` use the same default `/labelmap.txt`; this warning
+mainly applies when mixing custom models or custom label maps.
 
 ## CLI Reference
 
