@@ -3,8 +3,8 @@
 # Frigate ZMQ Detector
 
 Standalone Frigate `type: zmq` detector sidecar for running TFLite inference
-outside the main Frigate process. The first supported backend is Mesa Teflon for
-Rockchip NPU acceleration through Rocket.
+outside the main Frigate process. Supported backends include Mesa Teflon for
+Rockchip NPU acceleration through Rocket and EdgeTPU through `libedgetpu`.
 
 ## Why This Exists
 
@@ -40,7 +40,7 @@ taking Frigate down with it.
 
 Experimental `0.1.x` project.
 
-- Tested target: Mesa Teflon / Rocket on Rockchip NPU
+- Tested targets: Mesa Teflon / Rocket on Rockchip NPU and Google EdgeTPU
 - Frigate integration: Frigate `type: zmq` detector protocol
 - Inference runtime: TFLite C runtime via `edgefirst-tflite`
 - ZMQ transport: pure Rust `zeromq`; `libzmq` is not used
@@ -55,6 +55,7 @@ Experimental `0.1.x` project.
 - ZMQ REQ/REP protocol compatible with Frigate's ZMQ detector
 - Model pre-load support for avoiding repeated model transfer work
 - Mesa Teflon delegate support for Rockchip NPU acceleration
+- EdgeTPU delegate support with `--backend edgetpu`
 - CPU-only fallback with `--no-delegate`
 - SSD post-processing from 4 TFLite SSD outputs to Frigate's `(20, 6)` float32
   detection format
@@ -126,16 +127,54 @@ Frigate's detector request timeout.
 See [frigate-example.yml](frigate-example.yml) for a larger configuration
 fragment.
 
+### Multiple ZMQ Detectors
+
+Frigate can run multiple `type: zmq` detector entries. Each entry starts a
+Frigate detector process that pulls from Frigate's shared detection queue, so
+separate sidecar instances can be used for different accelerators.
+
+This has been tested with one EdgeTPU sidecar and one Rocket/Teflon sidecar:
+
+```yaml
+detectors:
+  edgetpu:
+    type: zmq
+    endpoint: tcp://127.0.0.1:5555
+    model_path: /edgetpu_model.tflite
+  rocket:
+    type: zmq
+    endpoint: tcp://127.0.0.1:5556
+    model_path: /cpu_model.tflite
+```
+
+Run one sidecar per endpoint:
+
+```bash
+frigate-zmq-detector \
+  --backend edgetpu \
+  --endpoint tcp://0.0.0.0:5555 \
+  --model /models/edgetpu_model.tflite
+
+frigate-zmq-detector \
+  --backend teflon \
+  --endpoint tcp://0.0.0.0:5556 \
+  --model /models/cpu_model.tflite
+```
+
+The EdgeTPU backend expects an EdgeTPU-compiled `.tflite` model. The Teflon
+backend uses the regular TFLite model used by Frigate's CPU detector.
+
 ## CLI Reference
 
 | Flag | Default | Description |
 |---|---:|---|
-| `--backend` | `teflon` | Detector backend to use |
+| `--backend` | `teflon` | Detector backend to use: `teflon` or `edgetpu` |
 | `--endpoint` | `tcp://0.0.0.0:5555` | ZMQ REP socket to bind |
 | `--model` | none | Pre-load a `.tflite` model from disk |
 | `--delegate` | `/usr/lib/teflon/libteflon.so` | Path to Teflon delegate `.so` |
+| `--edgetpu-delegate` | `libedgetpu.so.1.0` | Path to EdgeTPU delegate `.so` |
 | `--threads` | `1` | TFLite CPU threads |
-| `--no-delegate` | `false` | Disable Teflon delegate and run CPU-only |
+| `--no-delegate` | `false` | Disable delegate and run CPU-only; only valid with `--backend teflon` |
 | `--warmup-runs` | `3` | Warmup invocations after model load |
 | `--inference-timeout-ms` | `150` | Abort and restart the worker if one inference exceeds this |
 | `--tflite-lib` | `/usr/lib/aarch64-linux-gnu/libtensorflow-lite.so.2.14.1` | TFLite C library path |
@@ -160,6 +199,7 @@ Most CLI flags can also be configured with environment variables:
 | `ZMQ_ENDPOINT` | `--endpoint` |
 | `MODEL_PATH` | `--model` |
 | `TEFLON_LIB` | `--delegate` |
+| `EDGETPU_LIB` | `--edgetpu-delegate` |
 | `TFLITE_LIB` | `--tflite-lib` |
 | `TFLITE_THREADS` | `--threads` |
 | `WARMUP_RUNS` | `--warmup-runs` |
