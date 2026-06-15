@@ -6,8 +6,8 @@ use serde_json::json;
 use std::time::Duration;
 use zeromq::ZmqMessage;
 
+use crate::backend::DetectorBackend;
 use crate::error::{Result, SidecarError};
-use crate::tflite::TfliteManager;
 use crate::watchdog::run_with_process_watchdog;
 
 // (20, 6) float32 output = 480 bytes.
@@ -37,7 +37,7 @@ pub(crate) fn classify_message(msg: &ZmqMessage) -> bool {
 /// Handle a model availability query or model data transfer.
 pub(crate) fn handle_model_request(
     msg: ZmqMessage,
-    tflite: &mut TfliteManager,
+    backend: &mut dyn DetectorBackend,
 ) -> Result<ZmqMessage> {
     let frames = msg.into_vec();
     if frames.is_empty() {
@@ -53,9 +53,9 @@ pub(crate) fn handle_model_request(
 
     // Single frame: availability query.
     if frames.len() == 1 {
-        let loaded = tflite.is_model_ready(name);
+        let loaded = backend.is_model_ready(name);
         log::info!("Model availability request for {name}: loaded={loaded}");
-        return Ok(model_availability_reply(name, loaded, tflite.model_name()));
+        return Ok(model_availability_reply(name, loaded, backend.model_name()));
     }
 
     // Two frames: model data transfer (header + .tflite bytes).
@@ -63,9 +63,9 @@ pub(crate) fn handle_model_request(
         .get(1)
         .ok_or_else(|| SidecarError::Zmq("model transfer missing data frame".to_string()))?;
 
-    if tflite.is_ready() {
-        let current_name = tflite.model_name().unwrap_or("unknown");
-        if tflite.is_model_ready(name) {
+    if backend.is_ready() {
+        let current_name = backend.model_name().unwrap_or("unknown");
+        if backend.is_model_ready(name) {
             log::info!("Ignoring model transfer for {name}; model is already ready");
             return Ok(model_loaded_reply(
                 name,
@@ -93,7 +93,7 @@ pub(crate) fn handle_model_request(
         "Caching model {name} ({size} bytes)",
         size = data_bytes.len()
     );
-    tflite.cache_model(data_bytes, Some(name.to_string()))?;
+    backend.cache_model(data_bytes, Some(name.to_string()))?;
     log::info!("Model {name} loaded");
 
     Ok(model_loaded_reply(
@@ -168,7 +168,7 @@ pub(crate) fn zero_inference_reply() -> ZmqMessage {
 /// Handle an inference request and return a 2-frame reply.
 pub(crate) fn handle_inference(
     msg: ZmqMessage,
-    tflite: &mut TfliteManager,
+    backend: &mut dyn DetectorBackend,
     inference_timeout: Duration,
 ) -> Result<ZmqMessage> {
     let frames = msg.into_vec();
@@ -182,8 +182,9 @@ pub(crate) fn handle_inference(
     let input_data: &[u8] = &frames[1];
     let start = log::log_enabled!(log::Level::Debug).then(std::time::Instant::now);
 
-    let output = if tflite.is_ready() {
-        match run_with_process_watchdog("inference", inference_timeout, || tflite.run(input_data)) {
+    let output = if backend.is_ready() {
+        match run_with_process_watchdog("inference", inference_timeout, || backend.run(input_data))
+        {
             Ok(buf) => buf,
             Err(e) => {
                 log::error!("Inference error: {e} — returning zero detections");

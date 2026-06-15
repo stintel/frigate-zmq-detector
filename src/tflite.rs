@@ -6,6 +6,7 @@ use std::path::Path;
 
 use edgefirst_tflite::{Delegate, Interpreter, Library, Model};
 
+use crate::backend::DetectorBackend;
 use crate::error::{Result, SidecarError};
 
 /// Maximum detection slots in the output buffer (20).
@@ -151,6 +152,36 @@ impl TfliteManager {
             .map_err(|e| SidecarError::Tflite(format!("warmup invoke failed: {e:#?}")))?;
 
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DetectorBackend implementation
+// ---------------------------------------------------------------------------
+
+impl DetectorBackend for TfliteManager {
+    fn is_ready(&self) -> bool {
+        TfliteManager::is_ready(self)
+    }
+
+    fn model_name(&self) -> Option<&str> {
+        Self::model_name(self)
+    }
+
+    fn is_model_ready(&self, model_name: &str) -> bool {
+        TfliteManager::is_model_ready(self, model_name)
+    }
+
+    fn cache_model(&mut self, data: Vec<u8>, model_name: Option<String>) -> Result<()> {
+        TfliteManager::cache_model(self, data, model_name)
+    }
+
+    fn run(&mut self, input_bytes: &[u8]) -> Result<Vec<u8>> {
+        TfliteManager::run(self, input_bytes)
+    }
+
+    fn warmup(&mut self) -> Result<()> {
+        TfliteManager::warmup(self)
     }
 }
 

@@ -5,6 +5,7 @@
 //! This sidecar listens on a ZMQ REP socket, receives inference requests from
 //! Frigate's `zmq_ipc` plugin, and returns detection results.
 
+mod backend;
 mod cli;
 mod error;
 mod protocol;
@@ -18,6 +19,7 @@ use std::{env, process::Command};
 use clap::Parser;
 use zeromq::{RepSocket, Socket, SocketRecv, SocketSend, ZmqError};
 
+use crate::backend::DetectorBackend;
 use crate::cli::Cli;
 use crate::error::{Result, SidecarError};
 use crate::tflite::TfliteManager;
@@ -108,14 +110,14 @@ fn run() -> Result<()> {
     }
 
     // Warmup if model is available.
-    if manager.is_ready() && cli.warmup_runs > 0 {
+    if DetectorBackend::is_ready(&manager) && cli.warmup_runs > 0 {
         log::info!("Running {} warmup inference(s)", cli.warmup_runs);
         for run in 1..=cli.warmup_runs {
             let warmup_start = std::time::Instant::now();
             let warmup_result = watchdog::run_with_process_watchdog(
                 "warmup inference",
                 Duration::from_millis(cli.inference_timeout_ms),
-                || manager.warmup(),
+                || DetectorBackend::warmup(&mut manager),
             );
             if let Ok(()) = warmup_result {
                 let ms = warmup_start.elapsed().as_secs_f64() * 1000.0;
@@ -309,7 +311,7 @@ async fn zmq_rep_loop(
             let mut mgr = manager
                 .lock()
                 .map_err(|e| SidecarError::Tflite(format!("manager lock: {e:#?}")))?;
-            match protocol::handle_model_request(msg, &mut mgr) {
+            match protocol::handle_model_request(msg, &mut *mgr) {
                 Ok(r) => r,
                 Err(e) => {
                     log::error!("Model request error: {e}");
@@ -320,7 +322,7 @@ async fn zmq_rep_loop(
             let mut mgr = manager
                 .lock()
                 .map_err(|e| SidecarError::Tflite(format!("manager lock: {e:#?}")))?;
-            match protocol::handle_inference(msg, &mut mgr, inference_timeout) {
+            match protocol::handle_inference(msg, &mut *mgr, inference_timeout) {
                 Ok(r) => r,
                 Err(e) => {
                     log::error!("Inference dispatch error: {e}");
