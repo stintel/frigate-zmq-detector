@@ -20,7 +20,7 @@ use clap::Parser;
 use zeromq::{RepSocket, Socket, SocketRecv, SocketSend, ZmqError};
 
 use crate::backend::DetectorBackend;
-use crate::cli::Cli;
+use crate::cli::{BackendKind, Cli};
 use crate::error::{Result, SidecarError};
 use crate::tflite::TfliteManager;
 use crate::watchdog::{EXIT_CODE_NO_PROGRESS, ProgressWatchdog};
@@ -76,24 +76,33 @@ fn run() -> Result<()> {
     );
     log::info!("ZMQ send timeout: {}s", cli.send_timeout_secs);
 
-    // Load TFLite C library.
-    let library = edgefirst_tflite::Library::from_path(&cli.tflite_lib).map_err(|e| {
-        SidecarError::Tflite(format!(
-            "Failed to load TFLite library {}: {e:#?}",
-            cli.tflite_lib.display()
-        ))
-    })?;
-    log::info!("Loaded TFLite from {}", cli.tflite_lib.display());
-    let library = Box::leak(Box::new(library));
+    // Select detector backend.
+    let mut manager = match cli.backend {
+        BackendKind::Teflon => {
+            log::info!("Detector backend: teflon");
 
-    // Build manager.
-    let mut manager = TfliteManager::new(library, cli.threads);
+            // Load TFLite C library.
+            let library = edgefirst_tflite::Library::from_path(&cli.tflite_lib).map_err(|e| {
+                SidecarError::Tflite(format!(
+                    "Failed to load TFLite library {}: {e:#?}",
+                    cli.tflite_lib.display()
+                ))
+            })?;
+            log::info!("Loaded TFLite from {}", cli.tflite_lib.display());
+            let library = Box::leak(Box::new(library));
 
-    if cli.no_delegate {
-        manager.set_delegate("", false);
-    } else {
-        manager.set_delegate(&cli.delegate.to_string_lossy(), true);
-    }
+            // Build manager.
+            let mut manager = TfliteManager::new(library, cli.threads);
+
+            if cli.no_delegate {
+                manager.set_delegate("", false);
+            } else {
+                manager.set_delegate(&cli.delegate.to_string_lossy(), true);
+            }
+
+            manager
+        }
+    };
 
     // If a model file is pre-mounted, load it.
     if let Some(ref model_path) = cli.model {

@@ -130,6 +130,7 @@ fragment.
 
 | Flag | Default | Description |
 |---|---:|---|
+| `--backend` | `teflon` | Detector backend to use |
 | `--endpoint` | `tcp://0.0.0.0:5555` | ZMQ REP socket to bind |
 | `--model` | none | Pre-load a `.tflite` model from disk |
 | `--delegate` | `/usr/lib/teflon/libteflon.so` | Path to Teflon delegate `.so` |
@@ -155,6 +156,7 @@ Most CLI flags can also be configured with environment variables:
 
 | Variable | CLI flag |
 |---|---|
+| `BACKEND` | `--backend` |
 | `ZMQ_ENDPOINT` | `--endpoint` |
 | `MODEL_PATH` | `--model` |
 | `TEFLON_LIB` | `--delegate` |
