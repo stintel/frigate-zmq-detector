@@ -4,12 +4,22 @@
 
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
+
+/// Detector backend kind.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
+pub enum BackendKind {
+    #[default]
+    Teflon,
+}
 
 /// Frigate ZMQ detector sidecar with `TFLite` + Mesa Teflon delegate.
 #[derive(Parser, Debug, Clone)]
 #[command(name = "frigate-zmq-detector", version)]
 pub struct Cli {
+    /// Detector backend to use.
+    #[arg(long, env = "BACKEND", default_value = "teflon")]
+    pub backend: BackendKind,
     /// ZMQ REP endpoint to bind (`tcp://host:port` or `ipc://path`).
     #[arg(long, env = "ZMQ_ENDPOINT", default_value = "tcp://0.0.0.0:5555")]
     pub endpoint: String,
