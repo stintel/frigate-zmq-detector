@@ -7,26 +7,29 @@ use std::fmt;
 /// Sidecar-specific error type.
 #[derive(Debug)]
 pub enum SidecarError {
-    /// ZMQ socket or protocol error.
-    Zmq(String),
-    /// `TFLite` inference / delegate / model error.
-    Tflite(String),
-    /// Model was not loaded before inference was requested.
-    ModelNotLoaded,
-    /// JSON parse error.
-    Json(String),
     /// I/O error (model save, file access, etc.).
     Io(String),
+    /// Invalid CLI configuration.
+    InvalidConfiguration(String),
+    /// JSON parse error.
+    Json(String),
+    /// Model was not loaded before inference was requested.
+    ModelNotLoaded,
+    /// `TFLite` inference / delegate / model error.
+    Tflite(String),
+    /// ZMQ socket or protocol error.
+    Zmq(String),
 }
 
 impl fmt::Display for SidecarError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SidecarError::Zmq(msg) => write!(f, "ZMQ error: {msg}"),
-            SidecarError::Tflite(msg) => write!(f, "TFLite error: {msg}"),
-            SidecarError::ModelNotLoaded => write!(f, "model not loaded"),
-            SidecarError::Json(msg) => write!(f, "JSON error: {msg}"),
             SidecarError::Io(msg) => write!(f, "I/O error: {msg}"),
+            SidecarError::InvalidConfiguration(msg) => write!(f, "invalid configuration: {msg}"),
+            SidecarError::Json(msg) => write!(f, "JSON error: {msg}"),
+            SidecarError::ModelNotLoaded => write!(f, "model not loaded"),
+            SidecarError::Tflite(msg) => write!(f, "TFLite error: {msg}"),
+            SidecarError::Zmq(msg) => write!(f, "ZMQ error: {msg}"),
         }
     }
 }
