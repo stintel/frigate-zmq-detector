@@ -11,16 +11,16 @@ RUN apt-get update && \
         build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust via rustup (stable, aarch64-unknown-linux-gnu target).
+# Install Rust via rustup
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:/usr/local/rustup/bin:$PATH
 RUN curl -fSL https://sh.rustup.rs | sh -s -- -y --profile minimal && \
-    rustup default stable && rustup target add aarch64-unknown-linux-gnu
+    rustup default stable
 
 WORKDIR /build
 COPY . .
-RUN cargo build --target aarch64-unknown-linux-gnu --release
+RUN cargo build --release
 
 # ---- Runtime ----
 FROM docker.io/library/ubuntu:26.04
@@ -37,20 +37,20 @@ RUN apt-get update && \
         libtensorflow-lite2.14.1 \
         libusb-1.0-0 \
         mesa-teflon-delegate \
-        && curl -fsSL "https://github.com/feranick/libedgetpu/releases/download/${EDGETPU_RELEASE}/libedgetpu1-std_16.0tf2.19.1-1.ubuntu24.04_arm64.deb" -o /tmp/libedgetpu1-std.deb && \
+        && curl -fsSL "https://github.com/feranick/libedgetpu/releases/download/${EDGETPU_RELEASE}/libedgetpu1-std_16.0tf2.19.1-1.ubuntu24.04_amd64.deb" -o /tmp/libedgetpu1-std.deb && \
     dpkg -i /tmp/libedgetpu1-std.deb && \
     rm /tmp/libedgetpu1-std.deb && \
     apt-get remove --purge -y curl && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /models
 
-COPY --from=builder /build/target/aarch64-unknown-linux-gnu/release/frigate-zmq-detector /usr/local/bin/
+COPY --from=builder /build/target/release/frigate-zmq-detector /usr/local/bin/
 COPY --from=builder /build/entrypoint.sh /entrypoint.sh
 
 # Delegate and TFLite library paths.
 ENV EDGETPU_LIB=/usr/lib/libedgetpu.so.1.0
 ENV TEFLON_LIB=/usr/lib/teflon/libteflon.so
-ENV TFLITE_LIB=/usr/lib/aarch64-linux-gnu/libtensorflow-lite.so.2.14.1
+ENV TFLITE_LIB=/usr/lib/amd64-linux-gnu/libtensorflow-lite.so.2.14.1
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["--endpoint", "tcp://0.0.0.0:5555"]
