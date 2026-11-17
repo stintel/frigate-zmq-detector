@@ -98,4 +98,3 @@ ENV BACKEND=edgetpu \
     TFLITE_LIB=/usr/lib/libtensorflow-lite.so.2.14.1
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["--endpoint", "tcp://0.0.0.0:5555"]
